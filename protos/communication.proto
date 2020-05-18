@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+service GlobalLeader {
+    rpc Append(AppendRequest) returns (AppendResponse) {}
+}
+
+message AppendRequest {
+    string key = 1;
+    string value = 2;
+    string version = 3;
+}
+
+message AppendResponse {
+    string result = 1;
+}
