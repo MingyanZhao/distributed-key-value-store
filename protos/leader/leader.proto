@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+option go_package = ".;leader";
+
+package leader;
+
+service Leader {
+    rpc Sync(SyncRequest) returns (SyncResponse) {}
+}
+
+message SyncRequest {
+    string key = 1;
+    string address = 2;
+    string followerID = 3;
+}
+
+message SyncResponse {
+    string result = 1;
+    int64 version = 2;
+    repeated TargetFollower targetFollowers= 3;
+}
+
+message TargetFollower {
+    string address = 1;
+}

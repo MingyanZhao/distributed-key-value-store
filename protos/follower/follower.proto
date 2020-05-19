@@ -1,6 +1,10 @@
 syntax = "proto3";
 
-service GlobalLeader {
+option go_package = ".;follower";
+
+package follower;
+
+service Follower {
     rpc Append(AppendRequest) returns (AppendResponse) {}
 }
 
