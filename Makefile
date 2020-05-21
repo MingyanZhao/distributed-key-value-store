@@ -16,10 +16,10 @@ leader: leader.pb.go
 	go build -o bin/leader leader/leader.go
 
 follower: follower.pb.go
-	go build -o follower follower/follower.go
+	go build -o bin/follower follower/follower.go
 
 client: follower.pb.go
-	go build -o client client/client.go
+	go build -o bin/client client/client.go
 
 build: leader follower client
 
