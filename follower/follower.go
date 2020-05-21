@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	followerId                              = flag.Int("follower_id", 0, "The Follower's Unique ID")
+	followerID                              = flag.Int("follower_id", 0, "The Follower's Unique ID")
 	configuration   *configpb.Configuration = nil
 	followerAddress                         = ""
 )
@@ -78,7 +78,7 @@ func main() {
 	flag.Parse()
 
 	configuration = config.ReadConfiguration()
-	followerAddress = configuration.FollowerAddresses[*proto.Int(*followerId)]
+	followerAddress = configuration.FollowerAddresses[*proto.Int(*followerID)]
 
 	log.Printf("Starting follower server and listening on address %v", followerAddress)
 	lis, err := net.Listen("tcp", followerAddress)

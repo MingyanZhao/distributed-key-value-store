@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	followerId = flag.Int("follower_id", 0, "The Follower to talk to")
+	followerID = flag.Int("follower_id", 0, "The Follower to talk to")
 
 	testKeys = []string{"key-0", "Key-1", "Key-2", "Key-3", "key-4", "key-5", "key-6", "key-7", "key-8", "key-9"}
 )
@@ -73,7 +73,7 @@ func main() {
 	log.Println("Start client...")
 
 	// only supporting localhost
-	followerAddress := configuration.FollowerAddresses[*proto.Int(*followerId)]
+	followerAddress := configuration.FollowerAddresses[*proto.Int(*followerID)]
 	conn, err := grpc.Dial(followerAddress, opts...)
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)

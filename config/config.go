@@ -14,7 +14,7 @@ var (
 	configFilePath = flag.String("config_file", "config/local-config.pb.txt", "The Configuration file")
 )
 
-// Read a Configuration from the --config_file
+// ReadConfiguration  -- Read a Configuration from the --config_file
 func ReadConfiguration() *pb.Configuration {
 
 	content, err := ioutil.ReadFile(*configFilePath)
