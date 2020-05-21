@@ -6,6 +6,7 @@ A highly available distributed key value store.
 
 1. Install dependencies (may need more)
 ```bash
+go get google.golang.org/grpc
 go get -u github.com/golang/protobuf/protoc-gen-go
 go get github.com/google/uuid
 ```
