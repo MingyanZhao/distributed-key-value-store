@@ -1,0 +1,9 @@
+leader_address: "localhost:9999"
+follower_addresses {
+  key: 0
+  value: "localhost:10000"
+}
+follower_addresses {
+  key: 1
+  value: "localhost:10001"
+}

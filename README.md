@@ -11,10 +11,13 @@ go get -u github.com/golang/protobuf/protoc-gen-go
 go get github.com/google/uuid
 ```
 
+1. You can try doing ```make``` to build the project. If not:
+
 1. Generate proto files
 ```
 protoc -I protos protos/follower/follower.proto --go_out=plugins=grpc:protos/follower
 protoc -I protos protos/leader/leader.proto --go_out=plugins=grpc:protos/leader
+protoc -I protos protos/config/config.proto --go_out=plugins=grpc:protos/config
 ```
 
 ## Start components
@@ -30,17 +33,11 @@ Start the follower:
 ```bash
 go run follower/follower.go
 ```
-Optionally, set a different port
-```bash
-go run client/client.go --follwer_port=10001
-```
 
 3. Start a test client sending request to a follower.
 Start the test client with default port, 10000
 ```bash
 go run client/client.go
 ```
-Optionally, set a different port
-```bash
-go run client/client.go --follwer_port=10001
-```
+
+4. The default configration is in `config/local-config.pb.txt`; you can use your own config file to set a different port for example.

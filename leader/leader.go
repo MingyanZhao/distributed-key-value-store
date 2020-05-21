@@ -3,18 +3,13 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log"
 	"net"
 
 	"google.golang.org/grpc"
 
+	config "distributed-key-value-store/config"
 	pb "distributed-key-value-store/protos/leader"
-)
-
-var (
-	leaderAddr = flag.String("leader_addr", "localhost:9999", "The server address in the format of host:port")
-	leaderPort = flag.Int("leader_port", 9999, "The server port")
 )
 
 type leader struct {
@@ -59,8 +54,10 @@ func (l *leader) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncRespons
 func main() {
 	flag.Parse()
 
-	log.Printf("Starting leader server and listening on port %v", *leaderPort)
-	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", *leaderPort))
+	configuration := config.ReadConfiguration()
+
+	log.Printf("Starting leader server and listening on address %v", configuration.LeaderAddress)
+	lis, err := net.Listen("tcp", configuration.LeaderAddress)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}

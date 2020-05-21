@@ -7,17 +7,20 @@ import (
 	"log"
 	"net"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 
+	"distributed-key-value-store/config"
+	configpb "distributed-key-value-store/protos/config"
 	pb "distributed-key-value-store/protos/follower"
 	lpb "distributed-key-value-store/protos/leader"
 )
 
 var (
-	// followerAddr = flag.String("follower_addr", "", "follower address in the format of host:port")
-	followerPort = flag.Int("follower_port", 10000, "follower port")
-	leaderAddr   = flag.String("leader_addr", "localhost:9999", "global leader address in the format of host:port")
+	followerId                              = flag.Int("follower_id", 0, "The Follower's Unique ID")
+	configuration   *configpb.Configuration = nil
+	followerAddress                         = ""
 )
 
 type follower struct {
@@ -47,7 +50,7 @@ func (f *follower) Append(ctx context.Context, req *pb.AppendRequest) (*pb.Appen
 	log.Println("Sync with global leader...")
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
-	conn, err := grpc.Dial(*leaderAddr, opts...)
+	conn, err := grpc.Dial(configuration.LeaderAddress, opts...)
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)
 	}
@@ -56,7 +59,7 @@ func (f *follower) Append(ctx context.Context, req *pb.AppendRequest) (*pb.Appen
 
 	syncReq := &lpb.SyncRequest{
 		Key:        req.Key,
-		Address:    fmt.Sprintf("localhost:%d", *followerPort),
+		Address:    followerAddress,
 		FollowerID: f.followerID,
 	}
 	syncResp, err := l.Sync(ctx, syncReq)
@@ -74,8 +77,11 @@ func (f *follower) Append(ctx context.Context, req *pb.AppendRequest) (*pb.Appen
 func main() {
 	flag.Parse()
 
-	log.Printf("Starting follower server and listening on port %v", *followerPort)
-	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", *followerPort))
+	configuration = config.ReadConfiguration()
+	followerAddress = configuration.FollowerAddresses[*proto.Int(*followerId)]
+
+	log.Printf("Starting follower server and listening on address %v", followerAddress)
+	lis, err := net.Listen("tcp", followerAddress)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}

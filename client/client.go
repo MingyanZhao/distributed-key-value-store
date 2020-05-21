@@ -3,20 +3,20 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log"
 	"math/rand"
 	"time"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 
+	"distributed-key-value-store/config"
 	flpb "distributed-key-value-store/protos/follower"
 )
 
 var (
-	followerAddr = flag.String("follwer_addr", "localhost:10000", "The server address in the format of host:port")
-	followerPort = flag.Int("follwer_port", 10000, "The follower port")
+	followerId = flag.Int("follower_id", 0, "The Follower to talk to")
 
 	testKeys = []string{"key-0", "Key-1", "Key-2", "Key-3", "key-4", "key-5", "key-6", "key-7", "key-8", "key-9"}
 )
@@ -65,12 +65,16 @@ func sentRequests(client flpb.FollowerClient) {
 
 func main() {
 	flag.Parse()
+	configuration := config.ReadConfiguration()
+
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
 	opts = append(opts, grpc.WithBlock())
 	log.Println("Start client...")
+
 	// only supporting localhost
-	conn, err := grpc.Dial(fmt.Sprintf("localhost:%d", *followerPort), opts...)
+	followerAddress := configuration.FollowerAddresses[*proto.Int(*followerId)]
+	conn, err := grpc.Dial(followerAddress, opts...)
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)
 	}
