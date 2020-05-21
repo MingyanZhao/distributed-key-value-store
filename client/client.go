@@ -70,10 +70,11 @@ func main() {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
 	opts = append(opts, grpc.WithBlock())
-	log.Println("Start client...")
+	followerAddress := configuration.FollowerAddresses[*proto.Int(*followerID)]
+
+	log.Printf("Start client and listening on address %v", followerAddress)
 
 	// only supporting localhost
-	followerAddress := configuration.FollowerAddresses[*proto.Int(*followerID)]
 	conn, err := grpc.Dial(followerAddress, opts...)
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)
