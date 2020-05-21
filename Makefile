@@ -6,19 +6,19 @@ default: build
 $(PROTOC_GEN_GO):
 	go get -u github.com/golang/protobuf/protoc-gen-go
 
-leader.pb.go: protos/leader/leader.proto | $(PROTOC_GEN_GO) $(PROTOC)
+protos/leader/leader.pb.go: protos/leader/leader.proto | $(PROTOC_GEN_GO) $(PROTOC)
 	protoc -I protos protos/leader/leader.proto --go_out=plugins=grpc:protos/leader
 
-follower.pb.go: protos/follower/follower.proto | $(PROTOC_GEN_GO) $(PROTOC)
+protos/follower/follower.pb.go: protos/follower/follower.proto | $(PROTOC_GEN_GO) $(PROTOC)
 	protoc -I protos protos/follower/follower.proto --go_out=plugins=grpc:protos/follower
 
-leader: leader.pb.go
+leader: protos/leader/leader.pb.go
 	go build -o bin/leader leader/leader.go
 
-follower: follower.pb.go
+follower: protos/leader/leader.pb.go protos/follower/follower.pb.go
 	go build -o bin/follower follower/follower.go
 
-client: follower.pb.go
+client: protos/follower/follower.pb.go
 	go build -o bin/client client/client.go
 
 build: leader follower client
