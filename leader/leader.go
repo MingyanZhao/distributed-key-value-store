@@ -52,7 +52,8 @@ func (l *leader) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncRespons
 		Result:  "TBD",
 		TargetFollowers: []*pb.TargetFollower{
 			{
-				Address: req.Address,
+				Address:    req.Address,
+				FollowerId: req.FollowerId,
 			},
 		},
 	}

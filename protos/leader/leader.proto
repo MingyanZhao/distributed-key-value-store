@@ -11,15 +11,16 @@ service Leader {
 message SyncRequest {
     string key = 1;
     string address = 2;
-    string followerID = 3;
+    int32 follower_id = 3;
 }
 
 message SyncResponse {
     string result = 1;
     int64 version = 2;
-    repeated TargetFollower targetFollowers= 3;
+    repeated TargetFollower targetFollowers = 3;
 }
 
 message TargetFollower {
     string address = 1;
+    int32 follower_id = 2;
 }
