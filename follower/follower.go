@@ -8,7 +8,6 @@ import (
 	"net"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/google/uuid"
 	"google.golang.org/grpc"
 
 	"distributed-key-value-store/config"
@@ -26,14 +25,14 @@ var (
 type follower struct {
 	pb.UnimplementedFollowerServer
 
-	followerID string
+	followerID int
 	store      map[string]string
 	leader     lpb.LeaderClient
 }
 
-func newFollower() *follower {
+func newFollower(followerID int) *follower {
 	s := &follower{
-		followerID: uuid.New().String(),
+		followerID: followerID,
 		store:      make(map[string]string),
 	}
 	return s
@@ -60,7 +59,7 @@ func (f *follower) Append(ctx context.Context, req *pb.AppendRequest) (*pb.Appen
 	syncReq := &lpb.SyncRequest{
 		Key:        req.Key,
 		Address:    followerAddress,
-		FollowerID: f.followerID,
+		FollowerId: *proto.Int(f.followerID),
 	}
 	syncResp, err := l.Sync(ctx, syncReq)
 	if err != nil {
@@ -86,6 +85,6 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	grpcServer := grpc.NewServer()
-	pb.RegisterFollowerServer(grpcServer, newFollower())
+	pb.RegisterFollowerServer(grpcServer, newFollower(*followerID))
 	grpcServer.Serve(lis)
 }
