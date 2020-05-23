@@ -1,0 +1,7 @@
+FROM golang:1.13
+
+WORKDIR /dkvs
+COPY . .
+
+RUN apt-get update && apt-get install -y protobuf-compiler
+RUN make
