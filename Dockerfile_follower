@@ -1,0 +1,5 @@
+FROM dkvs-base:latest
+
+WORKDIR /dkvs
+
+CMD ["bin/follower"]
