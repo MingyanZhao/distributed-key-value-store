@@ -5,6 +5,7 @@ import (
 	"flag"
 	"log"
 	"net"
+	"sync"
 
 	"google.golang.org/grpc"
 
@@ -12,10 +13,16 @@ import (
 	pb "distributed-key-value-store/protos/leader"
 )
 
+type keyvaluemap struct {
+	// TODO: per key automic update?
+	m    sync.RWMutex
+	data map[string]*versioninfo
+}
+
 type leader struct {
 	pb.UnimplementedLeaderServer
 
-	keyVersionMap map[string]*versioninfo
+	keyVersionMap keyvaluemap
 }
 
 type versioninfo struct {
@@ -25,21 +32,23 @@ type versioninfo struct {
 
 func newLeader() *leader {
 	l := &leader{
-		keyVersionMap: make(map[string]*versioninfo),
+		keyVersionMap: keyvaluemap{data: make(map[string]*versioninfo)},
 	}
 	return l
 }
 
 func (l *leader) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncResponse, error) {
 	log.Printf("leader received sync request %v", req)
-	if l.keyVersionMap[req.Key] == nil {
-		l.keyVersionMap[req.Key] = &versioninfo{version: 0}
+	l.keyVersionMap.m.Lock()
+	defer l.keyVersionMap.m.Unlock()
+	if l.keyVersionMap.data[req.Key] == nil {
+		l.keyVersionMap.data[req.Key] = &versioninfo{version: 0}
 	}
-	l.keyVersionMap[req.Key].version++
-	l.keyVersionMap[req.Key].followerAddr = req.Address
+	l.keyVersionMap.data[req.Key].version++
+	l.keyVersionMap.data[req.Key].followerAddr = req.Address
 
 	resp := &pb.SyncResponse{
-		Version: l.keyVersionMap[req.Key].version,
+		Version: l.keyVersionMap.data[req.Key].version,
 		Result:  "TBD",
 		TargetFollowers: []*pb.TargetFollower{
 			{
