@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc"
 
 	config "distributed-key-value-store/config"
+	cpb "distributed-key-value-store/protos/config"
 	pb "distributed-key-value-store/protos/leader"
 )
 
@@ -21,7 +22,7 @@ type keyvaluemap struct {
 
 type leader struct {
 	pb.UnimplementedLeaderServer
-
+	configuration *cpb.Configuration
 	keyVersionMap keyvaluemap
 }
 
@@ -30,8 +31,9 @@ type versioninfo struct {
 	followerAddr string
 }
 
-func newLeader() *leader {
+func newLeader(configuration *cpb.Configuration) *leader {
 	l := &leader{
+		configuration: configuration,
 		keyVersionMap: keyvaluemap{data: make(map[string]*versioninfo)},
 	}
 	return l
@@ -47,13 +49,20 @@ func (l *leader) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncRespons
 	l.keyVersionMap.data[req.Key].version++
 	l.keyVersionMap.data[req.Key].followerAddr = req.Address
 
+	var primaryFollowerID, backupFollowerID int32
+	primaryFollowerID = req.FollowerId
+	backupFollowerID = (req.FollowerId + 1) % int32(len(l.configuration.FollowerAddresses))
 	resp := &pb.SyncResponse{
 		Version: l.keyVersionMap.data[req.Key].version,
 		Result:  "TBD",
 		TargetFollowers: []*pb.TargetFollower{
 			{
-				Address:    req.Address,
-				FollowerId: req.FollowerId,
+				Address:    l.configuration.FollowerAddresses[primaryFollowerID],
+				FollowerId: primaryFollowerID,
+			},
+			{
+				Address:    l.configuration.FollowerAddresses[backupFollowerID],
+				FollowerId: backupFollowerID,
 			},
 		},
 	}
@@ -72,6 +81,6 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	grpcServer := grpc.NewServer()
-	pb.RegisterLeaderServer(grpcServer, newLeader())
+	pb.RegisterLeaderServer(grpcServer, newLeader(configuration))
 	grpcServer.Serve(lis)
 }
