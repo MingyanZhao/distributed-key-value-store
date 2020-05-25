@@ -1,26 +1,32 @@
 .PHONY: default
 default: build
 
-# Just rebuild the protos each time, it's basically instant and keeps the rule
-# simple.
-.PHONY: protos
-protos:
+#
+# Protobufs and GRPC
+#
+
+protos/leader/leader.pb.go: protos/leader/leader.proto
 	protoc -I protos protos/leader/leader.proto --go_out=plugins=grpc:protos/leader
+
+protos/follower/follower.pb.go: protos/follower/follower.proto
 	protoc -I protos protos/follower/follower.proto --go_out=plugins=grpc:protos/follower
+
+protos/config/config.pb.go: protos/config/config.proto
 	protoc -I protos protos/config/config.proto --go_out=plugins=grpc:protos/config 
 
-LEADER=$(wildcard leader/*)
-FOLLOWER=$(wildcard follower/*)
-CLIENT=$(wildcard client/*)
-CONFIG=$(wildcard config/*)
+#
+# Binaries. Anything using `go build` is FORCEd because `go build` takes care of
+# Go dependencies and incremental building. We only need to include non-Go as
+# dependncies of each binary target.
+#
 
-bin/leader:  $(LEADER) protos
+bin/leader: FORCE protos/config/config.pb.go protos/leader/leader.pb.go
 	go build -o bin/leader leader/leader.go
 
-bin/follower: $(FOLLOWER) $(CONFIG) protos
+bin/follower: FORCE protos/config/config.pb.go protos/leader/leader.pb.go protos/follower/follower.pb.go
 	go build -o bin/follower follower/follower.go
 
-bin/client: $(CLIENT) $(CONFIG) protos
+bin/client: FORCE protos/config/config.pb.go protos/follower/follower.pb.go
 	go build -o bin/client client/client.go
 
 .PHONY: build
@@ -31,8 +37,11 @@ clean:
 	-rm -rf bin
 	-rm -f protos/*/*.pb.go
 
+.PHONY: FORCE
+FORCE:
+
 #
-# Docker rules.
+# Docker rules
 #
 
 .PHONY: docker
