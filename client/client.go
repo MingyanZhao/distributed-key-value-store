@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	followerID = flag.Int("follower_id", 0, "The Follower to talk to")
+	followerID = flag.String("follower_id", "", "The Follower to talk to")
 
 	testKeys = []string{"key-0", "Key-1", "Key-2", "Key-3", "key-4", "key-5", "key-6", "key-7", "key-8", "key-9"}
 )
@@ -24,15 +24,15 @@ var (
 // sentRequest
 func sendRequest(ctx context.Context, c flpb.FollowerClient, t time.Time) {
 	rand.Seed(time.Now().UnixNano())
-	req := &flpb.AppendRequest{
+	req := &flpb.PutRequest{
 		Key:     testKeys[rand.Intn(len(testKeys))],
 		Value:   uuid.New().String(),
 		Version: "1",
 	}
 	log.Printf("sending request %v", req)
-	resp, err := c.Append(ctx, req)
+	resp, err := c.Put(ctx, req)
 	if err != nil {
-		log.Fatalf("%v.Append(_) = _, %v: ", c, err)
+		log.Fatalf("%v.Put(_) = _, %v: ", c, err)
 	}
 	log.Println(resp)
 }
@@ -70,8 +70,7 @@ func main() {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
 	opts = append(opts, grpc.WithBlock())
-	followerAddress := configuration.FollowerAddresses[*proto.Int(*followerID)]
-
+	followerAddress := configuration.FollowerAddresses[*proto.String(*followerID)]
 	log.Printf("Start client and listening on address %v", followerAddress)
 
 	// only supporting localhost

@@ -34,6 +34,12 @@ To run in docker, skip to [running with docker](#running-with-docker).
 ## Manually 
 
 1. Generate proto files
+Run script:
+```
+./proto-gen.sh
+```
+Or generate them seprately:
+
 ```
 protoc -I protos protos/follower/follower.proto --go_out=plugins=grpc:protos/follower
 protoc -I protos protos/leader/leader.proto --go_out=plugins=grpc:protos/leader

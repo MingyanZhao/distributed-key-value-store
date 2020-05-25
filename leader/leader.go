@@ -39,7 +39,7 @@ func newLeader(configuration *cpb.Configuration) *leader {
 	return l
 }
 
-func (l *leader) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncResponse, error) {
+func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateResponse, error) {
 	log.Printf("leader received sync request %v", req)
 	l.keyVersionMap.m.Lock()
 	defer l.keyVersionMap.m.Unlock()
@@ -49,21 +49,20 @@ func (l *leader) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncRespons
 	l.keyVersionMap.data[req.Key].version++
 	l.keyVersionMap.data[req.Key].followerAddr = req.Address
 
-	var primaryFollowerID, backupFollowerID int32
+	var primaryFollowerID, backupFollowerID string
 	primaryFollowerID = req.FollowerId
-	backupFollowerID = (req.FollowerId + 1) % int32(len(l.configuration.FollowerAddresses))
-	resp := &pb.SyncResponse{
+	// TODO: update backup follower selection procedure.
+	backupFollowerID = req.FollowerId
+	resp := &pb.UpdateResponse{
 		Version: l.keyVersionMap.data[req.Key].version,
-		Result:  "TBD",
-		TargetFollowers: []*pb.TargetFollower{
-			{
-				Address:    l.configuration.FollowerAddresses[primaryFollowerID],
-				FollowerId: primaryFollowerID,
-			},
-			{
-				Address:    l.configuration.FollowerAddresses[backupFollowerID],
-				FollowerId: backupFollowerID,
-			},
+		Result:  pb.UpdateResult_SUCCESS,
+		PrePrimary: &pb.FollowerEndpoint{
+			Address:    l.configuration.FollowerAddresses[primaryFollowerID],
+			FollowerId: primaryFollowerID,
+		},
+		PreBackup: &pb.FollowerEndpoint{
+			Address:    l.configuration.FollowerAddresses[backupFollowerID],
+			FollowerId: backupFollowerID,
 		},
 	}
 	log.Printf("leader replying sync response %v", resp)
