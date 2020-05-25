@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"sync"
@@ -12,6 +13,20 @@ import (
 	config "distributed-key-value-store/config"
 	cpb "distributed-key-value-store/protos/config"
 	pb "distributed-key-value-store/protos/leader"
+)
+
+// Flags.
+const (
+	casterFlag          = "caster"
+	casterFlagImmediate = "immediate"
+	casterFlagPeriodic  = "periodic"
+
+	timeoutFlag = "timeout"
+)
+
+var (
+	caster  = flag.String(casterFlag, casterFlagImmediate, fmt.Sprintf("Which broadcaster to use: %q or %q", casterFlagImmediate, casterFlagPeriodic))
+	timeout = flag.Int(timeoutFlag, 5, "Timeout, in seconds, when connecting to each follower")
 )
 
 type keyvaluemap struct {
@@ -27,6 +42,9 @@ type leader struct {
 	pb.UnimplementedLeaderServer
 	configuration *cpb.Configuration
 	keyVersionMap keyvaluemap
+
+	// broadcaster sends updates to all followers when an update occurs.
+	broadcaster broadcaster
 }
 
 type versioninfo struct {
@@ -37,11 +55,28 @@ type versioninfo struct {
 	followerAddr string
 }
 
-func newLeader(configuration *cpb.Configuration) *leader {
+func newLeader(configuration *cpb.Configuration) (*leader, error) {
+	// Pick a broadcast mechanism.
+	var bc broadcaster
+	var err error
+	switch *caster {
+	case casterFlagImmediate:
+		if bc, err = newImmediate(configuration); err != nil {
+			return nil, err
+		}
+	case casterFlagPeriodic:
+		if bc, err = newPeriodic(configuration); err != nil {
+			return nil, err
+		}
+	default:
+		panic(fmt.Sprintf("unknown caster: %q", *caster))
+	}
+
 	return &leader{
 		configuration: configuration,
 		keyVersionMap: keyvaluemap{data: make(map[string]*versioninfo)},
-	}
+		broadcaster:   bc,
+	}, nil
 }
 
 func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateResponse, error) {
@@ -78,7 +113,11 @@ func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateR
 			FollowerId: backupFollowerID,
 		},
 	}
-	log.Printf("leader replying udpate response %v", resp)
+
+	// There's been a successful update. Notify followers.
+	l.broadcaster.enqueue(req.Key, resp)
+
+	log.Printf("leader replying update response %v", resp)
 	return resp, nil
 }
 
@@ -93,6 +132,10 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	grpcServer := grpc.NewServer()
-	pb.RegisterLeaderServer(grpcServer, newLeader(configuration))
+	ldr, err := newLeader(configuration)
+	if err != nil {
+		log.Fatalf("failed to create leader: %v", err)
+	}
+	pb.RegisterLeaderServer(grpcServer, ldr)
 	grpcServer.Serve(lis)
 }

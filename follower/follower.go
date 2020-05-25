@@ -62,7 +62,7 @@ type value struct {
 	version int64
 }
 
-func dail(addr string) (*grpc.ClientConn, error) {
+func dial(addr string) (*grpc.ClientConn, error) {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
 	opts = append(opts, grpc.WithBlock())
@@ -77,10 +77,11 @@ func dail(addr string) (*grpc.ClientConn, error) {
 // Create a follower that is connected to the leader.
 func newFollower(configuration *configpb.Configuration, followerID, followerAddress string) (*follower, error) {
 	// Connect to the leader
-	conn, err := dail(configuration.LeaderAddress)
+	conn, err := dial(configuration.LeaderAddress)
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("Connected to leader at address %q", configuration.LeaderAddress)
 	return &follower{
 		id:      followerID,
 		address: followerAddress,
@@ -189,7 +190,7 @@ func (f *follower) handleSync(key string) error {
 			}
 
 			if _, ok := followerConnectionMap[updateResp.PrePrimary.FollowerId]; !ok {
-				newConn, err := dail(updateResp.PrePrimary.Address)
+				newConn, err := dial(updateResp.PrePrimary.Address)
 				if err != nil {
 					// TODO: handle error
 					log.Printf("error: failed to connect the pre-primary %v, at address: %v", updateResp.PrePrimary.FollowerId, updateResp.PrePrimary.Address)
@@ -239,12 +240,20 @@ func (f *follower) handleUpdate(key string) error {
 				// One update message failed but still need to continue.
 				log.Printf("Follower %v failed %v", f.id, err)
 			}
-			log.Printf("Follower %v received udpate response: %v", f.id, updateResp)
+			log.Printf("Follower %v received update response: %v", f.id, updateResp)
 			if updateResp.Result == lpb.UpdateResult_NEED_SYNC {
 				updateRespChan <- updateResp
 			}
 		}
 	}
+}
+
+// TODO: Handle.
+func (f *follower) Notify(ctx context.Context, req *pb.NotifyRequest) (*pb.NotifyResponse, error) {
+	log.Printf("Got a notification")
+	return &pb.NotifyResponse{
+		Success: true,
+	}, nil
 }
 
 func main() {
