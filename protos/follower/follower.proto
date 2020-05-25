@@ -26,6 +26,7 @@ message PutRequest {
     // optimization where it is returned by PutResponse and sent in GetRequest.
     // Then the follower can respond with "you have the latest version" without
     // including the possibly large value.
+    // Yes. This field should be removed.
     string version = 3;
 }
 
@@ -77,10 +78,10 @@ message SyncResponse {
     // It at lease should be a list of values with different versions, 
     // but a version could also be assigned to a list of values. 
     // example: [ {[val-a, val-b, val-c], ver: 1]}, {[val-d], ver: 2]}, {[val-e], ver: 3]}
-    repeated Value values = 2;
+    repeated Value value = 2;
 }
 
 message Value {
     repeated string value = 1;
-    string version = 2;
+    int64 version = 2;
 }
