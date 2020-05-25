@@ -55,9 +55,9 @@ protoc -I protos protos/config/config.proto --go_out=plugins=grpc:protos/config
 
 2. You can start each process with `go run`:
 ```bash
-go run leader/leader.go
-go run follower/follower.go
-go run client/client.go
+go run distributed-key-value-store/leader
+go run distributed-key-value-storeer/follower
+go run distributed-key-value-store/client
 ```
 
 # Running with Docker

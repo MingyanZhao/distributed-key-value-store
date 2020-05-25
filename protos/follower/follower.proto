@@ -11,9 +11,12 @@ service Follower {
     // Get the value for a key. Only sent by clients.
     rpc Get(GetRequest) returns (GetResponse) {}
 
-    // Contact another follower to sync up values for a key. Only sent by the
-    // leader.
+    // Sync up values for a key. Only sent by other followers.
     rpc Sync(SyncRequest) returns (SyncResponse) {}
+
+    // Notify the follower that a key has been updated, and it should sync with
+    // another follower for the update. Only sent by the leader.
+    rpc Notify(NotifyRequest) returns (NotifyResponse) {}
 }
 
 // Append a value to a key.
@@ -84,4 +87,12 @@ message SyncResponse {
 message Value {
     repeated string value = 1;
     int64 version = 2;
+}
+
+message NotifyRequest {
+    string key = 1;
+}
+
+message NotifyResponse {
+    bool success = 1;
 }
