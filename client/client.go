@@ -15,8 +15,13 @@ import (
 	flpb "distributed-key-value-store/protos/follower"
 )
 
+const followerIDFlag = "follower_id"
+const timeoutFlag = "timeout"
+
 var (
-	followerID = flag.String("follower_id", "", "The Follower to talk to")
+	followerID = flag.String(followerIDFlag, "", "The Follower to talk to")
+	timeout    = flag.Int(timeoutFlag, 5, "Timeout, in seconds, when connecting to the follower")
+	testTime   = flag.Int("testtime", 120, "How long to send updates for, in seconds")
 
 	testKeys = []string{"key-0", "key-1", "key-2", "key-3", "key-4", "key-5", "key-6", "key-7", "key-8", "key-9"}
 )
@@ -40,40 +45,39 @@ func sendRequest(ctx context.Context, c flpb.FollowerClient, t time.Time) {
 // sentRequests puts new key-value pair
 func sentRequests(client flpb.FollowerClient) {
 	log.Printf("Sending request per 2 seconds")
-	// ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	// defer cancel()
 	ctx := context.Background()
 	ticker := time.NewTicker(2 * time.Second)
-	done := make(chan bool)
-
-	go func() {
-		for {
-			select {
-			case <-done:
-				log.Printf("client closed")
-				return
-			case t := <-ticker.C:
-				sendRequest(ctx, client, t)
-			}
+	defer ticker.Stop()
+	done := time.After(time.Duration(*testTime) * time.Second)
+	for {
+		select {
+		case <-done:
+			log.Println("done sending requests")
+			return
+		case t := <-ticker.C:
+			sendRequest(ctx, client, t)
 		}
-	}()
-	time.Sleep(2 * time.Minute)
-	ticker.Stop()
-	done <- true
-	log.Println("stop sending request")
+	}
 }
 
 func main() {
 	flag.Parse()
 	configuration := config.ReadConfiguration()
 
+	// There must be a follower specified via flag, and that follower must be in
+	// the config.
+	followerAddress, ok := configuration.FollowerAddresses[*proto.String(*followerID)]
+	if !ok {
+		log.Fatalf("did not specify a follower ID with the %q flag", followerIDFlag)
+	}
+
+	// Connect to the follower.
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
 	opts = append(opts, grpc.WithBlock())
-	followerAddress := configuration.FollowerAddresses[*proto.String(*followerID)]
-	log.Printf("Start client and listening on address %v", followerAddress)
-
-	// only supporting localhost
+	opts = append(opts, grpc.WithTimeout(time.Duration(*timeout)*time.Second))
+	log.Printf("Start client connecting to follower %q at address %q", *followerID, followerAddress)
+	// Only supporting localhost for testing.
 	conn, err := grpc.Dial(followerAddress, opts...)
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)

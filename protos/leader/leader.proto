@@ -5,30 +5,55 @@ option go_package = ".;leader";
 package leader;
 
 service Leader {
+    // Update a key by appending a new value.
     rpc Update(UpdateRequest) returns (UpdateResponse) {}
 }
 
+// An UpdateRequest is sent by followers to the leader to notify that the
+// follower has an update for a key.
 message UpdateRequest {
+    // The key being updated.
     string key = 1;
+
+    // The IPv4 address of a follower.
     string address = 2;
+
+    // A unique follower ID.
     string follower_id = 3;
+
+    // The version the follower believes it has updated to.
     int64 version = 4;
 }
 
 message UpdateResponse {
+    // The result of the update.
     UpdateResult result = 1;
+
+    // The version of the updated key that the follower should sync to.
     int64 version = 2;
+
+    // The follower to be contacted for syncing.
     FollowerEndpoint pre_primary = 3;
+
+    // A backup follower in case pre_primary is unreachable.
     FollowerEndpoint pre_backup = 4;
 }
 
 message FollowerEndpoint {
+    // The address of the folower, parsable by net.Dial/Listen.
     string address = 1;
+
+    // A unique follower ID.
     string follower_id = 2;
 }
 
 enum UpdateResult {
+    // The update succeded and no sync is required.
     SUCCESS = 0;
+
+    // The update succeeded and the followr should sync with another follower.
     NEED_SYNC = 1;
+
+    // The update failed and the follower should retry.
     FAILED = 2;
 }

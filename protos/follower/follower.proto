@@ -5,48 +5,75 @@ option go_package = ".;follower";
 package follower;
 
 service Follower {
+    // Append a new value to a key. Only sent by clients.
     rpc Put(PutRequest) returns (PutResponse) {}
 
+    // Get the value for a key. Only sent by clients.
     rpc Get(GetRequest) returns (GetResponse) {}
 
+    // Contact another follower to sync up values for a key. Only sent by the
+    // leader.
     rpc Sync(SyncRequest) returns (SyncResponse) {}
 }
 
+// Append a value to a key.
 message PutRequest {
     string key = 1;
     string value = 2;
+
+    // The version the client believes it has updated to.
+    // TODO: Do clients actually care about the version number? Maybe as an
+    // optimization where it is returned by PutResponse and sent in GetRequest.
+    // Then the follower can respond with "you have the latest version" without
+    // including the possibly large value.
     string version = 3;
 }
 
+// TODO: Possibly return an error, enabling clients to connect to other
+// followers if their local follower crashes.
 message PutResponse {
+    // TODO: Use an error code instead of a string.
     string result = 1;
 }
 
+// Gets the value of a key.
 message GetRequest {
     string key = 1;
 }
 
+// Returns the value of a key.
+// TODO: What do we return if the key is unset?
 message GetResponse {
     repeated string values = 1;
 }
 
+// TODO: There's room for optimization here, e.g. only sending parts of values.
+
+// Asks another follower for its data for a given key while providing it's own.
 message SyncRequest {
     AskFor askFor = 1;
     Mydata myData = 2;
 }
 
+// Contains the list of versions needed to update a key.
 message AskFor {
+    // TODO: The key should probably be in SyncRequest.
     string key = 1;
     repeated string version = 2;
 }
 
+// Contains the current values at a certain version.
 message Mydata {
     string version = 1;
     repeated string values = 2;
 }
 
+// Contains a list of values for a key.
 message SyncResponse {
+    // TODO: Probably not needed, since the request contains a key.
     string key = 1;
+    // TODO: I don't think this needs to be a list of values that contains a
+    // list of values.
     repeated Value values = 2;
 }
 
