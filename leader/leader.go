@@ -40,7 +40,7 @@ func newLeader(configuration *cpb.Configuration) *leader {
 }
 
 func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateResponse, error) {
-	log.Printf("leader received sync request %v", req)
+	log.Printf("leader received update request %v", req)
 	l.keyVersionMap.m.Lock()
 	defer l.keyVersionMap.m.Unlock()
 	if l.keyVersionMap.data[req.Key] == nil {
@@ -65,7 +65,7 @@ func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateR
 			FollowerId: backupFollowerID,
 		},
 	}
-	log.Printf("leader replying sync response %v", resp)
+	log.Printf("leader replying udpate response %v", resp)
 	return resp, nil
 }
 

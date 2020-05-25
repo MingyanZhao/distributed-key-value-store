@@ -26,23 +26,33 @@ type follower struct {
 	pb.UnimplementedFollowerServer
 
 	followerID string
-	store      map[string][]*data
+	store      map[string]*data
 	leader     lpb.LeaderClient
 	conn       *grpc.ClientConn
-	udpateChan chan *lpb.UpdateRequest
+	done       chan bool
 }
 
 type data struct {
-	value   string
+	values []*value
+	// Each key has a update channel, so that different keys are updated concurrently.
+	// The values for the same key are not updated in parallel because of linearizable consideration.
+	updateChan chan *lpb.UpdateRequest
+	done       chan bool
+}
+
+type value struct {
+	val     string
 	version int64
 }
 
 func newFollower(followerID string) (*follower, error) {
 	f := &follower{
 		followerID: followerID,
-		store:      make(map[string][]*data),
+		store:      make(map[string]*data),
+		done:       make(chan bool),
 	}
 
+	// Connect to the leader
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
 	conn, err := grpc.Dial(configuration.LeaderAddress, opts...)
@@ -52,6 +62,7 @@ func newFollower(followerID string) (*follower, error) {
 	}
 	f.conn = conn
 	f.leader = lpb.NewLeaderClient(conn)
+
 	return f, nil
 }
 
@@ -62,15 +73,16 @@ func (f *follower) stop() {
 func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, error) {
 	// Storing the data
 	log.Printf("Received request %v", req)
-
-	values := f.store[req.Key]
 	var v int64 = 0
-	if f.store[req.Key] != nil {
-		v = (values[len(values)-1]).version
+	if d, ok := f.store[req.Key]; ok {
+		v = (d.values[len(d.values)-1]).version
+	} else {
+		f.store[req.Key] = &data{updateChan: make(chan *lpb.UpdateRequest), done: make(chan bool)}
+		go f.handleUpdate(req.Key)
 	}
 
-	newData := &data{value: req.Value, version: v}
-	f.store[req.Key] = append(f.store[req.Key], newData)
+	newData := &value{val: req.Value, version: v}
+	f.store[req.Key].values = append(f.store[req.Key].values, newData)
 	res := fmt.Sprintf("key value pair added: %v -> %v", req.Key, f.store[req.Key])
 	log.Println(res)
 
@@ -89,16 +101,36 @@ func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse
 		Version:    newData.version,
 		FollowerId: *proto.String(f.followerID),
 	}
-	udpateResp, err := f.leader.Update(ctx, updateReq)
-	if err != nil {
-		return nil, err
-	}
-	log.Printf("Follower %v received sync response: %v", f.followerID, udpateResp)
+	f.store[req.Key].updateChan <- updateReq
 
 	// Reply to the clilent
 	return &pb.PutResponse{
 		Result: res,
 	}, nil
+}
+
+func (f *follower) handleUpdate(key string) error {
+	log.Printf("waiting for update request")
+	ctx := context.Background()
+	done := f.store[key].done
+	updateChan := f.store[key].updateChan
+	for {
+		select {
+		case <-done:
+			log.Printf("key %v update channel closed", key)
+			return nil
+		case updateReq := <-updateChan:
+			// there is an update request
+			log.Printf("send update request %v", updateReq)
+			udpateResp, err := f.leader.Update(ctx, updateReq)
+			if err != nil {
+				// TODO: handle the error properlly.
+				// One update message failed but still need to continue.
+				log.Printf("Follower %v failed %v", f.followerID, err)
+			}
+			log.Printf("Follower %v received udpate response: %v", f.followerID, udpateResp)
+		}
+	}
 }
 
 func main() {

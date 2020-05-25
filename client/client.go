@@ -18,7 +18,7 @@ import (
 var (
 	followerID = flag.String("follower_id", "", "The Follower to talk to")
 
-	testKeys = []string{"key-0", "Key-1", "Key-2", "Key-3", "key-4", "key-5", "key-6", "key-7", "key-8", "key-9"}
+	testKeys = []string{"key-0", "key-1", "key-2", "key-3", "key-4", "key-5", "key-6", "key-7", "key-8", "key-9"}
 )
 
 // sentRequest
