@@ -5,15 +5,52 @@ option go_package = ".;follower";
 package follower;
 
 service Follower {
-    rpc Append(AppendRequest) returns (AppendResponse) {}
+    rpc Put(PutRequest) returns (PutResponse) {}
+
+    rpc Get(GetRequest) returns (GetResponse) {}
+
+    rpc Sync(SyncRequest) returns (SyncResponse) {}
 }
 
-message AppendRequest {
+message PutRequest {
     string key = 1;
     string value = 2;
     string version = 3;
 }
 
-message AppendResponse {
+message PutResponse {
     string result = 1;
+}
+
+message GetRequest {
+    string key = 1;
+}
+
+message GetResponse {
+    repeated string values = 1;
+}
+
+message SyncRequest {
+    AskFor askFor = 1;
+    Mydata myData = 2;
+}
+
+message AskFor {
+    string key = 1;
+    repeated string version = 2;
+}
+
+message Mydata {
+    string version = 1;
+    repeated string values = 2;
+}
+
+message SyncResponse {
+    string key = 1;
+    repeated Value values = 2;
+}
+
+message Value {
+    repeated string value = 1;
+    string version = 2;
 }

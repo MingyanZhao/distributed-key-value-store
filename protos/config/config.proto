@@ -9,5 +9,5 @@ message Configuration {
     // TODO: maybe host and port need to be in separate fields
     string leader_address = 1;
 
-    map<int32, string> follower_addresses = 2;
+    map<string, string> follower_addresses = 2;
 }
