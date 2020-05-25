@@ -53,6 +53,11 @@ func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateR
 	if l.keyVersionMap.data[req.Key] == nil {
 		l.keyVersionMap.data[req.Key] = &versioninfo{version: 0}
 	}
+	result := pb.UpdateResult_SUCCESS
+	if l.keyVersionMap.data[req.Key].version > req.Version {
+		result = pb.UpdateResult_NEED_SYNC
+	}
+
 	l.keyVersionMap.data[req.Key].version++
 	l.keyVersionMap.data[req.Key].followerAddr = req.Address
 
@@ -60,11 +65,10 @@ func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateR
 	// TODO: add support for NEED_SYNC case
 	var primaryFollowerID, backupFollowerID string
 	primaryFollowerID = req.FollowerId
-	// TODO: update backup follower selection procedure.
 	backupFollowerID = req.FollowerId
 	resp := &pb.UpdateResponse{
 		Version: l.keyVersionMap.data[req.Key].version,
-		Result:  pb.UpdateResult_SUCCESS,
+		Result:  result,
 		PrePrimary: &pb.FollowerEndpoint{
 			Address:    l.configuration.FollowerAddresses[primaryFollowerID],
 			FollowerId: primaryFollowerID,
