@@ -23,6 +23,7 @@ type keyvaluemap struct {
 // leader implements the leader service.
 type leader struct {
 	// TODO: Remove. This stubs the Follower methods we haven't implemented yet.
+	// Probably should keep it. We get Unimplemented error for free.
 	pb.UnimplementedLeaderServer
 	configuration *cpb.Configuration
 	keyVersionMap keyvaluemap
@@ -56,6 +57,7 @@ func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateR
 	l.keyVersionMap.data[req.Key].followerAddr = req.Address
 
 	// Send a SUCCESS response with the new version and followers.
+	// TODO: add support for NEED_SYNC case
 	var primaryFollowerID, backupFollowerID string
 	primaryFollowerID = req.FollowerId
 	// TODO: update backup follower selection procedure.

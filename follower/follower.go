@@ -29,6 +29,7 @@ var (
 // follower implements the Follower service.
 type follower struct {
 	// TODO: Remove. This stubs the Follower methods we haven't implemented yet.
+	// Probably should keep it. We get Unimplemented error for free.
 	pb.UnimplementedFollowerServer
 
 	// These are set during creation and are immutable.
@@ -37,11 +38,9 @@ type follower struct {
 	done    chan bool // TODO: Unused.
 
 	// TODO: What happens if we lose the connection to the leader?
+	// Need to handle it. Probably need to take a look at https://github.com/grpc/grpc-go/tree/master/examples/features/keepalive
 	leader lpb.LeaderClient
 	conn   *grpc.ClientConn
-
-	// TODO: Unused.
-	updateChan chan *lpb.UpdateRequest
 
 	// TODO: store needs a mutex.
 	store map[string]*data
