@@ -20,35 +20,42 @@ type keyvaluemap struct {
 	data map[string]*versioninfo
 }
 
+// leader implements the leader service.
 type leader struct {
+	// TODO: Remove. This stubs the Follower methods we haven't implemented yet.
 	pb.UnimplementedLeaderServer
 	configuration *cpb.Configuration
 	keyVersionMap keyvaluemap
 }
 
 type versioninfo struct {
-	version      int64
+	// version is the newest version the leader has updated.
+	version int64
+
+	// followerAddr is the address of the current primary follower.
 	followerAddr string
 }
 
 func newLeader(configuration *cpb.Configuration) *leader {
-	l := &leader{
+	return &leader{
 		configuration: configuration,
 		keyVersionMap: keyvaluemap{data: make(map[string]*versioninfo)},
 	}
-	return l
 }
 
 func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateResponse, error) {
 	log.Printf("leader received update request %v", req)
 	l.keyVersionMap.m.Lock()
 	defer l.keyVersionMap.m.Unlock()
+
+	// Update the version info for the key.
 	if l.keyVersionMap.data[req.Key] == nil {
 		l.keyVersionMap.data[req.Key] = &versioninfo{version: 0}
 	}
 	l.keyVersionMap.data[req.Key].version++
 	l.keyVersionMap.data[req.Key].followerAddr = req.Address
 
+	// Send a SUCCESS response with the new version and followers.
 	var primaryFollowerID, backupFollowerID string
 	primaryFollowerID = req.FollowerId
 	// TODO: update backup follower selection procedure.
