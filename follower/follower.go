@@ -52,6 +52,7 @@ type data struct {
 	// Each key has a update channel, so that different keys are updated concurrently.
 	// The values for the same key are not updated in parallel because of linearizable consideration.
 	updateChan chan *lpb.UpdateRequest
+	syncChan   chan *pb.SyncRequest
 	done       chan bool
 }
 
@@ -97,6 +98,7 @@ func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse
 	} else {
 		f.store[req.Key] = &data{updateChan: make(chan *lpb.UpdateRequest), done: make(chan bool)}
 		go f.handleUpdate(req.Key)
+		go f.handleSync(req.Key)
 	}
 
 	newData := &value{val: req.Value, version: v}
@@ -111,7 +113,7 @@ func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse
 	// received, updated, synced
 
 	// TODO: Make this happen asynchronously.
-	// Synching with leader
+	// Sending update with leader
 	log.Println("Sync with global leader...")
 
 	updateReq := &lpb.UpdateRequest{
@@ -128,11 +130,33 @@ func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse
 	}, nil
 }
 
+func (f *follower) handleSync(key string) error {
+	log.Printf("waiting for sync request")
+	// ctx := context.Background()
+	syncChan := f.store[key].syncChan
+	for {
+		select {
+		case sync := <-syncChan:
+			log.Printf("needs a sync %v", sync)
+		}
+	}
+}
+
+func askForVersions(globalVer, localVer int64) *pb.AskFor {
+	result := &pb.AskFor{}
+	var i int64
+	for i = localVer + 1; i < globalVer; i++ {
+		result.Versions = append(result.Versions, i)
+	}
+	return result
+}
+
 func (f *follower) handleUpdate(key string) error {
 	log.Printf("waiting for update request")
 	ctx := context.Background()
 	done := f.store[key].done
 	updateChan := f.store[key].updateChan
+	syncChan := f.store[key].syncChan
 	for {
 		select {
 		case <-done:
@@ -147,6 +171,17 @@ func (f *follower) handleUpdate(key string) error {
 				// One update message failed but still need to continue.
 				log.Printf("Follower %v failed %v", f.id, err)
 			}
+
+			globalVer := updateReq.Version
+			values := f.store[key].values
+			localVer := values[len(values)-1].version
+			askForVers := askForVersions(globalVer, localVer)
+			syncReq := &pb.SyncRequest{
+				Key:    key,
+				AskFor: askForVers,
+				MyData: &pb.Mydata{},
+			}
+			syncChan <- syncReq
 			log.Printf("Follower %v received udpate response: %v", f.id, udpateResp)
 		}
 	}

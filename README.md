@@ -23,7 +23,7 @@ To run in docker, skip to [running with docker](#running-with-docker).
 4. The default configration is in `protos/config/local-config.pb.txt`; you can
    use your own config file to set a different port for example.
 
-# Building and Running
+# Building, Testing and Running
 
 ## Using `make`
 
@@ -31,7 +31,14 @@ To run in docker, skip to [running with docker](#running-with-docker).
 
 2. Binaries are in bin/.
 
-## Manually 
+## Testing
+Enter a foler, then run the test.
+```bash
+$ cd follower
+$ go test
+```
+
+## Run manually 
 
 1. Generate proto files
 Run script:

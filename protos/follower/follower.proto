@@ -53,13 +53,12 @@ message GetResponse {
 message SyncRequest {
     AskFor askFor = 1;
     Mydata myData = 2;
+    string key = 3;
 }
 
 // Contains the list of versions needed to update a key.
 message AskFor {
-    // TODO: The key should probably be in SyncRequest.
-    string key = 1;
-    repeated string version = 2;
+    repeated int64 versions = 1;
 }
 
 // Contains the current values at a certain version.
@@ -74,6 +73,10 @@ message SyncResponse {
     string key = 1;
     // TODO: I don't think this needs to be a list of values that contains a
     // list of values.
+    // It could be refactored. 
+    // It at lease should be a list of values with different versions, 
+    // but a version could also be assigned to a list of values. 
+    // example: [ {[val-a, val-b, val-c], ver: 1]}, {[val-d], ver: 2]}, {[val-e], ver: 3]}
     repeated Value values = 2;
 }
 
