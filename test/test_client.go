@@ -14,6 +14,7 @@ import (
 	"distributed-key-value-store/config"
 	cpb "distributed-key-value-store/protos/config"
 	flpb "distributed-key-value-store/protos/follower"
+	"distributed-key-value-store/util"
 )
 
 var (
@@ -74,10 +75,10 @@ func main() {
 	opts = append(opts, grpc.WithInsecure())
 	opts = append(opts, grpc.WithBlock())
 	opts = append(opts, grpc.WithTimeout(time.Duration(*connTimeout)*time.Second))
-	for followerID, followerAddress := range configuration.FollowerAddresses {
+	for followerID, followerAddress := range configuration.Followers {
 		log.Printf("Start client connecting to follower %q at address %q", followerID, followerAddress)
 		// Only supporting localhost for testing.
-		conn, err := grpc.Dial(followerAddress, opts...)
+		conn, err := grpc.Dial(util.FormatServiceAddress(followerAddress), opts...)
 		if err != nil {
 			log.Fatalf("fail to dial: %v", err)
 		}
