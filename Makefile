@@ -5,14 +5,16 @@ default: build
 # Protobufs and GRPC
 #
 
-protos/leader/leader.pb.go: protos/leader/leader.proto
-	protoc -I protos protos/leader/leader.proto --go_out=plugins=grpc:protos/leader
+PROTO_OPTS := -I protos --go_out=plugins=grpc:protos --go_opt=paths=source_relative
+
+protos/leader/leader.pb.go: protos/leader/leader.proto protos/config/config.proto
+	protoc protos/leader/leader.proto $(PROTO_OPTS)
 
 protos/follower/follower.pb.go: protos/follower/follower.proto
-	protoc -I protos protos/follower/follower.proto --go_out=plugins=grpc:protos/follower
+	protoc protos/follower/follower.proto $(PROTO_OPTS)
 
 protos/config/config.pb.go: protos/config/config.proto
-	protoc -I protos protos/config/config.proto --go_out=plugins=grpc:protos/config 
+	protoc protos/config/config.proto $(PROTO_OPTS)
 
 #
 # Binaries. Anything using `go build` is FORCEd because `go build` takes care of

@@ -13,6 +13,7 @@ import (
 
 	"distributed-key-value-store/config"
 	flpb "distributed-key-value-store/protos/follower"
+	"distributed-key-value-store/util"
 )
 
 const followerIDFlag = "follower_id"
@@ -66,7 +67,7 @@ func main() {
 
 	// There must be a follower specified via flag, and that follower must be in
 	// the config.
-	followerAddress, ok := configuration.FollowerAddresses[*proto.String(*followerID)]
+	followerAddress, ok := configuration.Followers[*proto.String(*followerID)]
 	if !ok {
 		log.Fatalf("did not specify a follower ID with the %q flag", followerIDFlag)
 	}
@@ -78,7 +79,7 @@ func main() {
 	opts = append(opts, grpc.WithTimeout(time.Duration(*timeout)*time.Second))
 	log.Printf("Start client connecting to follower %q at address %q", *followerID, followerAddress)
 	// Only supporting localhost for testing.
-	conn, err := grpc.Dial(followerAddress, opts...)
+	conn, err := grpc.Dial(util.FormatServiceAddress(followerAddress), opts...)
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)
 	}

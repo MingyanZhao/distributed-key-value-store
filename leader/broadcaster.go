@@ -12,6 +12,7 @@ import (
 	cpb "distributed-key-value-store/protos/config"
 	fpb "distributed-key-value-store/protos/follower"
 	pb "distributed-key-value-store/protos/leader"
+	"distributed-key-value-store/util"
 )
 
 var frequencyMS = flag.Int("frequency", 1000, "The frequency of periodic broadcasts in milliseconds")
@@ -121,10 +122,10 @@ func newNotifier(config *cpb.Configuration) (notifier, error) {
 	notifier := notifier{
 		followers: make(map[string]fpb.FollowerClient),
 	}
-	for id, addr := range config.FollowerAddresses {
-		conn, err := grpc.Dial(addr, grpc.WithInsecure())
+	for id, service := range config.Followers {
+		conn, err := grpc.Dial(util.FormatServiceAddress(service), grpc.WithInsecure())
 		if err != nil {
-			return notifier, fmt.Errorf("failed to dial follower %q at address %q: %v", id, addr, err)
+			return notifier, fmt.Errorf("failed to dial follower %q service %v: %v", id, service, err)
 		}
 		notifier.followers[id] = fpb.NewFollowerClient(conn)
 	}
