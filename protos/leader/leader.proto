@@ -1,6 +1,8 @@
 syntax = "proto3";
 
-option go_package = ".;leader";
+option go_package = "distributed-key-value-store/protos/leader";
+
+import "config/config.proto";
 
 package leader;
 
@@ -15,8 +17,8 @@ message UpdateRequest {
     // The key being updated.
     string key = 1;
 
-    // The IPv4 address of a follower.
-    string address = 2;
+    // The follower's service.
+    config.ServiceAddress follower_address = 2;
 
     // A unique follower ID.
     string follower_id = 3;
@@ -40,8 +42,8 @@ message UpdateResponse {
 }
 
 message FollowerEndpoint {
-    // The address of the folower, parsable by net.Dial/Listen.
-    string address = 1;
+    // The follower's service.
+    config.ServiceAddress address = 1;
 
     // A unique follower ID.
     string follower_id = 2;

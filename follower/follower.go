@@ -15,6 +15,7 @@ import (
 	configpb "distributed-key-value-store/protos/config"
 	pb "distributed-key-value-store/protos/follower"
 	lpb "distributed-key-value-store/protos/leader"
+	"distributed-key-value-store/util"
 )
 
 const followerIDFlag = "follower_id"
@@ -35,7 +36,7 @@ type follower struct {
 
 	// These are set during creation and are immutable.
 	id      string
-	address string
+	address *configpb.ServiceAddress
 	done    chan bool // TODO: Unused.
 
 	// TODO: What happens if we lose the connection to the leader?
@@ -62,26 +63,26 @@ type value struct {
 	version int64
 }
 
-func dial(addr string) (*grpc.ClientConn, error) {
+func dial(addr *configpb.ServiceAddress) (*grpc.ClientConn, error) {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
 	opts = append(opts, grpc.WithBlock())
 	opts = append(opts, grpc.WithTimeout(time.Duration(*timeout)*time.Second))
-	conn, err := grpc.Dial(addr, opts...)
+	conn, err := grpc.Dial(util.FormatServiceAddress(addr), opts...)
 	if err != nil {
-		return nil, fmt.Errorf("fail to dial server at address %q: %v", addr, err)
+		return nil, fmt.Errorf("fail to dial server at address %v: %v", addr, err)
 	}
 	return conn, nil
 }
 
 // Create a follower that is connected to the leader.
-func newFollower(configuration *configpb.Configuration, followerID, followerAddress string) (*follower, error) {
+func newFollower(configuration *configpb.Configuration, followerID string, followerAddress *configpb.ServiceAddress) (*follower, error) {
 	// Connect to the leader
-	conn, err := dial(configuration.LeaderAddress)
+	conn, err := dial(configuration.Leader)
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("Connected to leader at address %q", configuration.LeaderAddress)
+	log.Printf("Connected to leader at address %v", configuration.Leader)
 	return &follower{
 		id:      followerID,
 		address: followerAddress,
@@ -132,10 +133,10 @@ func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse
 	log.Println("Sync with global leader...")
 
 	updateReq := &lpb.UpdateRequest{
-		Key:        req.Key,
-		Address:    f.address,
-		Version:    newData.version,
-		FollowerId: *proto.String(f.id),
+		Key:             req.Key,
+		FollowerAddress: f.address,
+		Version:         newData.version,
+		FollowerId:      *proto.String(f.id),
 	}
 	f.store[req.Key].updateReqChan <- updateReq
 
@@ -278,13 +279,13 @@ func main() {
 
 	// Get config and options.
 	configuration := config.ReadConfiguration()
-	followerAddress, ok := configuration.FollowerAddresses[*proto.String(*followerID)]
+	followerAddress, ok := configuration.Followers[*proto.String(*followerID)]
 	if !ok {
 		log.Fatalf("did not specify a follower ID with the %q flag", followerIDFlag)
 	}
 
 	// Create and start the follower service.
-	lis, err := net.Listen("tcp", followerAddress)
+	lis, err := net.Listen("tcp", util.FormatServiceAddress(followerAddress))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
@@ -293,7 +294,7 @@ func main() {
 		log.Fatalf("failed to create new follower: %v", err)
 	}
 
-	log.Printf("Starting follower server and listening on address %q", followerAddress)
+	log.Printf("Starting follower server and listening on address %v", followerAddress)
 	grpcServer := grpc.NewServer()
 	pb.RegisterFollowerServer(grpcServer, f)
 	grpcServer.Serve(lis)

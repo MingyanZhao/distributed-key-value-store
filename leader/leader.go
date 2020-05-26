@@ -13,6 +13,7 @@ import (
 	config "distributed-key-value-store/config"
 	cpb "distributed-key-value-store/protos/config"
 	pb "distributed-key-value-store/protos/leader"
+	"distributed-key-value-store/util"
 )
 
 // Flags.
@@ -52,7 +53,7 @@ type versioninfo struct {
 	version int64
 
 	// followerAddr is the address of the current primary follower.
-	followerAddr string
+	followerAddr cpb.ServiceAddress
 }
 
 func newLeader(configuration *cpb.Configuration) (*leader, error) {
@@ -94,7 +95,7 @@ func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateR
 	}
 
 	l.keyVersionMap.data[req.Key].version++
-	l.keyVersionMap.data[req.Key].followerAddr = req.Address
+	l.keyVersionMap.data[req.Key].followerAddr = *req.FollowerAddress
 
 	// Send a SUCCESS response with the new version and followers.
 	// TODO: add support for NEED_SYNC case
@@ -105,11 +106,11 @@ func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateR
 		Version: l.keyVersionMap.data[req.Key].version,
 		Result:  result,
 		PrePrimary: &pb.FollowerEndpoint{
-			Address:    l.configuration.FollowerAddresses[primaryFollowerID],
+			Address:    l.configuration.Followers[primaryFollowerID],
 			FollowerId: primaryFollowerID,
 		},
 		PreBackup: &pb.FollowerEndpoint{
-			Address:    l.configuration.FollowerAddresses[backupFollowerID],
+			Address:    l.configuration.Followers[backupFollowerID],
 			FollowerId: backupFollowerID,
 		},
 	}
@@ -126,8 +127,8 @@ func main() {
 
 	configuration := config.ReadConfiguration()
 
-	log.Printf("Starting leader server and listening on address %v", configuration.LeaderAddress)
-	lis, err := net.Listen("tcp", configuration.LeaderAddress)
+	log.Printf("Starting leader server and listening on address %v", configuration.Leader)
+	lis, err := net.Listen("tcp", util.FormatServiceAddress(configuration.Leader))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
