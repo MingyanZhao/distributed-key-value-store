@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+option go_package = ".;config";
+
+package config;
+
+message TestSpec {
+  repeated TestStep test_steps = 1;
+}
+
+message TestStep {
+  string follower_id = 1;
+
+  oneof Step {
+    PutStep put_step = 2;
+    GetStep get_step = 3;
+  }
+}
+
+message PutStep {
+  string key = 1;
+  string value = 2;
+}
+
+message GetStep {
+  string key = 1;
+  string asserted_value = 2;
+}
