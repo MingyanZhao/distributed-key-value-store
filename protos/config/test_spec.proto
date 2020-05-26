@@ -9,11 +9,14 @@ message TestSpec {
 }
 
 message TestStep {
+  // The follower target
   string follower_id = 1;
+  // optionally, sleep this ms before executing the step
+  int64 pre_sleep_ms = 2;
 
   oneof Step {
-    PutStep put_step = 2;
-    GetStep get_step = 3;
+    PutStep put_step = 3;
+    GetStep get_step = 4;
   }
 }
 
@@ -24,5 +27,6 @@ message PutStep {
 
 message GetStep {
   string key = 1;
-  string asserted_value = 2;
+  // Assert that the Get API returns these values
+  repeated string asserted_values = 2;
 }

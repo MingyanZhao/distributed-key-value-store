@@ -1,0 +1,15 @@
+test_steps {
+  follower_id: "0"
+  put_step {
+    key: "key1"
+    value: "value1-0"
+  }
+}
+test_steps {
+  follower_id: "1"
+  pre_sleep_ms: 1000
+  get_step {
+    key: "key1"
+    asserted_values: "value1-0"
+  }
+}

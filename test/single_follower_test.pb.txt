@@ -7,8 +7,9 @@ test_steps {
 }
 test_steps {
   follower_id: "0"
+  pre_sleep_ms: 1000
   get_step {
     key: "key1"
-    asserted_value: "value1-1"
+    asserted_values: "value1-0"
   }
 }

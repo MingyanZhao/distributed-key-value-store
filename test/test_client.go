@@ -5,6 +5,7 @@ import (
 	"flag"
 	"io/ioutil"
 	"log"
+	"reflect"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -20,22 +21,6 @@ var (
 	connTimeout  = flag.Int("timeout", 5, "Timeout, in seconds, when connecting to the follower")
 )
 
-// sentRequest
-func sendRequest(ctx context.Context, c flpb.FollowerClient, t time.Time) {
-	// rand.Seed(time.Now().UnixNano())
-	// req := &flpb.PutRequest{
-	// 	Key:     testKeys[rand.Intn(len(testKeys))],
-	// 	Value:   uuid.New().String(),
-	// 	Version: "1",
-	// }
-	// log.Printf("sending request %v", req)
-	// resp, err := c.Put(ctx, req)
-	// if err != nil {
-	// 	log.Fatalf("%v.Put(_) = _, %v: ", c, err)
-	// }
-	// log.Println(resp)
-}
-
 func sendPutRequest(client flpb.FollowerClient, followerID string, putStep cpb.PutStep) {
 	ctx := context.Background()
 	req := &flpb.PutRequest{
@@ -48,38 +33,20 @@ func sendPutRequest(client flpb.FollowerClient, followerID string, putStep cpb.P
 	}
 }
 
-func sendGetRequest(client flpb.FollowerClient, followerID string, gsetStep cpb.GetStep) {
+func sendGetRequest(client flpb.FollowerClient, followerID string, getStep cpb.GetStep) {
 	ctx := context.Background()
 	req := &flpb.GetRequest{
-		Key: gsetStep.GetKey(),
+		Key: getStep.GetKey(),
 	}
 	resp, err := client.Get(ctx, req)
 	if err != nil {
 		log.Fatalf("%v.Get(_) = _, %v: ", followerID, err)
 	}
 
-	if resp.Values[0] != gsetStep.GetAssertedValue() {
-		log.Fatalf("%v.Get(_) %v != %v: ", resp.Values, gsetStep.GetAssertedValue())
+	if !reflect.DeepEqual(resp.GetValues(), getStep.GetAssertedValues()) {
+		log.Fatalf("%v.Get(_) %v != %v: ", followerID, resp.Values, getStep.GetAssertedValues())
 	}
 
-}
-
-// sentRequests puts new key-value pair
-func sentRequests(client flpb.FollowerClient) {
-	// log.Printf("Sending request per 2 seconds")
-	// ctx := context.Background()
-	// ticker := time.NewTicker(2 * time.Second)
-	// defer ticker.Stop()
-	// done := time.After(time.Duration(*testTime) * time.Second)
-	// for {
-	// 	select {
-	// 	case <-done:
-	// 		log.Println("done sending requests")
-	// 		return
-	// 	case t := <-ticker.C:
-	// 		sendRequest(ctx, client, t)
-	// 	}
-	// }
 }
 
 func readTestSpec() *cpb.TestSpec {
@@ -120,13 +87,17 @@ func main() {
 
 	for _, step := range testSpec.GetTestSteps() {
 		followerID := step.GetFollowerId()
+		if step.GetPreSleepMs() > 0 {
+			log.Printf("Sleeping for %v ms", step.GetPreSleepMs())
+			time.Sleep(time.Duration(step.GetPreSleepMs()) * time.Millisecond)
+		}
 		switch s := step.Step.(type) {
 		case *cpb.TestStep_PutStep:
 			log.Printf("%v.Put: %v\n", followerID, s)
-			// sendPutRequest(connMap[followerID], followerID, *s.PutStep)
+			sendPutRequest(connMap[followerID], followerID, *s.PutStep)
 		case *cpb.TestStep_GetStep:
 			log.Printf("%v.Get: %v\n", followerID, s)
-			// sendGetRequest(connMap[followerID], followerID, *s.GetStep)
+			sendGetRequest(connMap[followerID], followerID, *s.GetStep)
 		}
 	}
 }

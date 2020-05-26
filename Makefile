@@ -33,7 +33,7 @@ bin/client: FORCE protos/config/config.pb.go protos/follower/follower.pb.go
 	go build -o bin/client distributed-key-value-store/client
 
 bin/test_client: FORCE protos/config/test_spec.pb.go protos/config/config.pb.go protos/follower/follower.pb.go
-	go build -o bin/test_client client/test_client.go
+	go build -o bin/test_client test/test_client.go
 
 .PHONY: build
 build: bin/leader bin/follower bin/client bin/test_client
