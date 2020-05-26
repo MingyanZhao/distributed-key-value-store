@@ -1,9 +1,18 @@
-leader_address: "localhost:9999"
-follower_addresses {
-  key: "0"
-  value: "localhost:10000"
+leader: {
+  address: "localhost"
+  port: 9999
 }
-follower_addresses {
+followers {
+  key: "0"
+  value: {
+    address: "localhost"
+    port: 10000
+  }
+}
+followers {
   key: "1"
-  value: "localhost:10001"
+  value: {
+    address: "localhost"
+    port: 10001
+  }
 }

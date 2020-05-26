@@ -1,14 +1,23 @@
 syntax = "proto3";
 
-option go_package = ".;config";
+option go_package = "distributed-key-value-store/protos/config";
 
 package config;
 
 message Configuration {
 
-    // TODO: maybe host and port need to be in separate fields
-    string leader_address = 1;
+    // The leader's service.
+    ServiceAddress leader = 1;
 
-    // Maps each follower's ID to its address.
-    map<string, string> follower_addresses = 2;
+    // Maps each follower's ID to its service.
+    map<string, ServiceAddress> followers = 2;
+}
+
+// The address of a service in the system.
+message ServiceAddress {
+    // The hostname or human-readable IP address.
+    string address = 1;
+
+    // The port on which the service listens.
+    int32 port = 2;
 }
