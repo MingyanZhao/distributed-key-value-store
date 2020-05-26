@@ -146,6 +146,23 @@ func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse
 	}, nil
 }
 
+// TODO: DUMMY IMPL PLEASE FIX!
+func (f *follower) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
+	var values []string
+	if d, ok := f.store[req.Key]; ok {
+		values = make([]string, len(f.store[req.Key].values))
+		for i, v := range d.values {
+			values[i] = v.val
+		}
+	} else {
+		values = []string{}
+	}
+
+	return &pb.GetResponse{
+		Values: values,
+	}, nil
+}
+
 // If the values is a list https://golang.org/pkg/container/list/, we could avoid this.
 func (f *follower) latestVersion(key string) int64 {
 	values := f.store[key].values

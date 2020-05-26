@@ -69,3 +69,6 @@ go run distributed-key-value-store/client
 ```bash
 docker run --rm --network host dkvs-leader
 ```
+# Running the tests
+
+1. Run `test/run_test.sh` in the project dirctory

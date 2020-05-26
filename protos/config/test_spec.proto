@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+option go_package = ".;config";
+
+package config;
+
+message TestSpec {
+  repeated TestStep test_steps = 1;
+}
+
+message TestStep {
+  // The follower target
+  string follower_id = 1;
+  // optionally, sleep this ms before executing the step
+  int64 pre_sleep_ms = 2;
+
+  oneof Step {
+    PutStep put_step = 3;
+    GetStep get_step = 4;
+  }
+}
+
+message PutStep {
+  string key = 1;
+  string value = 2;
+}
+
+message GetStep {
+  string key = 1;
+  // Assert that the Get API returns these values
+  repeated string asserted_values = 2;
+}
