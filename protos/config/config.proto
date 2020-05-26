@@ -9,5 +9,6 @@ message Configuration {
     // TODO: maybe host and port need to be in separate fields
     string leader_address = 1;
 
+    // Maps each follower's ID to its address.
     map<string, string> follower_addresses = 2;
 }

@@ -23,14 +23,14 @@ protos/config/test_spec.pb.go: protos/config/test_spec.proto
 # dependncies of each binary target.
 #
 
-bin/leader: FORCE protos/config/config.pb.go protos/leader/leader.pb.go
-	go build -o bin/leader leader/leader.go
+bin/leader: FORCE protos/config/config.pb.go protos/leader/leader.pb.go protos/follower/follower.pb.go
+	go build -o bin/leader distributed-key-value-store/leader
 
 bin/follower: FORCE protos/config/config.pb.go protos/leader/leader.pb.go protos/follower/follower.pb.go
-	go build -o bin/follower follower/follower.go
+	go build -o bin/follower distributed-key-value-store/follower
 
 bin/client: FORCE protos/config/config.pb.go protos/follower/follower.pb.go
-	go build -o bin/client client/client.go
+	go build -o bin/client distributed-key-value-store/client
 
 bin/test_client: FORCE protos/config/test_spec.pb.go protos/config/config.pb.go protos/follower/follower.pb.go
 	go build -o bin/test_client client/test_client.go
