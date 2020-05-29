@@ -128,7 +128,7 @@ func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse
 
 	// Get the current version (or 0 if it's the first).
 	if _, ok := f.store[req.Key]; !ok {
-		// A new key is received. Start the channels for the new key.
+		// A new key is received. Initialize a store entry.
 		f.store[req.Key] = &data{
 			updateReqChan:   make(chan *lpb.UpdateRequest),
 			syncReqChan:     make(chan *syncRequest),
@@ -136,6 +136,7 @@ func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse
 			buffer:          make([]string, 0),
 			versionToValues: make(map[int64][]string),
 		}
+		// Starts channels
 		go f.handleUpdate(req.Key)
 		go f.handleSync(req.Key)
 	}
@@ -146,7 +147,7 @@ func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse
 	f.store[req.Key].buffer = append(f.store[req.Key].buffer, req.Value)
 	// f.store[req.Key].values = append(f.store[req.Key].values, newData)
 
-	res := fmt.Sprintf("key value pair recieved, added in buffer: %v -> %v", req.Key, f.store[req.Key].buffer)
+	res := fmt.Sprintf("key value pair recieved %v: %v", req.Key, req.Value)
 	log.Println(res)
 
 	// TODO: write the data to the local disk
@@ -155,17 +156,7 @@ func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse
 	// The states are:
 	// received, updated, synced
 
-	// TODO: Make this happen asynchronously.
-	// Sending update with leader
-	log.Println("update with global leader...")
-
-	updateReq := &lpb.UpdateRequest{
-		Key:             req.Key,
-		FollowerAddress: f.address,
-		Version:         f.store[req.Key].latestVersion,
-		FollowerId:      *proto.String(f.id),
-	}
-	f.store[req.Key].updateReqChan <- updateReq
+	go f.sendUpdate(req.Key)
 
 	// Reply to the clilent
 	return &pb.PutResponse{
@@ -225,6 +216,20 @@ func (f *follower) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncRespo
 		Key:   req.Key,
 		Value: outValues,
 	}, nil
+}
+
+func (f *follower) sendUpdate(key string) {
+	// TODO: Make this happen asynchronously.
+	// Sending update with leader
+	log.Println("update with global leader...")
+
+	updateReq := &lpb.UpdateRequest{
+		Key:             key,
+		FollowerAddress: f.address,
+		Version:         f.store[key].latestVersion,
+		FollowerId:      *proto.String(f.id),
+	}
+	f.store[key].updateReqChan <- updateReq
 }
 
 func (f *follower) handleSync(key string) error {
