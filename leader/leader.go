@@ -32,6 +32,7 @@ var (
 
 type keyvaluemap struct {
 	// TODO: per key automic update?
+	// Different keys should be updated concurrently. So each key should have a lock.
 	m    sync.RWMutex
 	data map[string]*versioninfo
 }
@@ -52,8 +53,13 @@ type versioninfo struct {
 	// version is the newest version the leader has updated.
 	version int64
 
-	// followerAddr is the address of the current primary follower.
-	followerAddr cpb.ServiceAddress
+	fInfo *followerInfo
+}
+
+type followerInfo struct {
+	// followerAddr is the address of the follower.
+	followerAddr *cpb.ServiceAddress
+	followerID   string
 }
 
 func newLeader(configuration *cpb.Configuration) (*leader, error) {
@@ -87,36 +93,55 @@ func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateR
 
 	// Update the version info for the key.
 	if l.keyVersionMap.data[req.Key] == nil {
-		l.keyVersionMap.data[req.Key] = &versioninfo{version: 0}
+		log.Printf("leader first seen this key, create a new entry, %v", req.Key)
+		l.keyVersionMap.data[req.Key] = &versioninfo{
+			version: 0,
+			fInfo: &followerInfo{
+				followerAddr: l.configuration.Followers["0"],
+				followerID:   "0",
+			},
+		}
+	} else {
+		log.Printf("leader has the key %v, version %v, follower info %v", req.Key, l.keyVersionMap.data[req.Key].version, *l.keyVersionMap.data[req.Key].fInfo)
 	}
+
+	// Set the result
 	result := pb.UpdateResult_SUCCESS
 	if l.keyVersionMap.data[req.Key].version > req.Version {
 		result = pb.UpdateResult_NEED_SYNC
 	}
 
+	// Advance the version number for the key
 	l.keyVersionMap.data[req.Key].version++
-	l.keyVersionMap.data[req.Key].followerAddr = *req.FollowerAddress
 
-	// Send a SUCCESS response with the new version and followers.
-	// TODO: add support for NEED_SYNC case
-	var primaryFollowerID, backupFollowerID string
-	primaryFollowerID = req.FollowerId
-	backupFollowerID = req.FollowerId
+	// Update the follower info. Swtich the current primary to the input follower info.
+	prePrimary := *l.keyVersionMap.data[req.Key].fInfo
+	log.Printf("preprimary is %v, id %v", prePrimary.followerAddr.Port, prePrimary.followerID)
+
+	l.keyVersionMap.data[req.Key].fInfo.followerAddr = req.FollowerAddress
+	l.keyVersionMap.data[req.Key].fInfo.followerID = req.FollowerId
+	log.Printf("new preprimary is %v id %v", l.keyVersionMap.data[req.Key].fInfo.followerAddr.Port, l.keyVersionMap.data[req.Key].fInfo.followerID)
+	log.Printf("preprimary again is %v, id %v", prePrimary.followerAddr.Port, prePrimary.followerID)
+
 	resp := &pb.UpdateResponse{
 		Version: l.keyVersionMap.data[req.Key].version,
 		Result:  result,
 		PrePrimary: &pb.FollowerEndpoint{
-			Address:    l.configuration.Followers[primaryFollowerID],
-			FollowerId: primaryFollowerID,
+			Address:    prePrimary.followerAddr,
+			FollowerId: prePrimary.followerID,
 		},
+		// TODO: implement backup follower setting. Now the primary and the backup are the same
 		PreBackup: &pb.FollowerEndpoint{
-			Address:    l.configuration.Followers[backupFollowerID],
-			FollowerId: backupFollowerID,
+			Address:    prePrimary.followerAddr,
+			FollowerId: prePrimary.followerID,
 		},
 	}
 
 	// There's been a successful update. Notify followers.
-	l.broadcaster.enqueue(req.Key, resp)
+	// Not sure if we want to notify every follower in the update message.
+	// We definitely can! But Braodcast here means the followers would do a lot of sync on every request.
+	// Comment it out temporarily for testing.
+	// l.broadcaster.enqueue(req.Key, resp)
 
 	log.Printf("leader replying update response %v", resp)
 	return resp, nil
