@@ -35,18 +35,10 @@ message UpdateResponse {
     int64 version = 2;
 
     // The follower to be contacted for syncing.
-    FollowerEndpoint pre_primary = 3;
+    config.FollowerEndpoint pre_primary = 3;
 
     // A backup follower in case pre_primary is unreachable.
-    FollowerEndpoint pre_backup = 4;
-}
-
-message FollowerEndpoint {
-    // The follower's service.
-    config.ServiceAddress address = 1;
-
-    // A unique follower ID.
-    string follower_id = 2;
+    config.FollowerEndpoint pre_backup = 4;
 }
 
 enum UpdateResult {

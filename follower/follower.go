@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -130,8 +131,8 @@ func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse
 	if _, ok := f.store[req.Key]; !ok {
 		// A new key is received. Initialize a store entry.
 		f.store[req.Key] = &data{
-			updateReqChan:   make(chan *lpb.UpdateRequest),
-			syncReqChan:     make(chan *syncRequest),
+			updateReqChan:   make(chan *lpb.UpdateRequest, 100),
+			syncReqChan:     make(chan *syncRequest, 100),
 			done:            make(chan bool),
 			buffer:          make([]string, 0),
 			versionToValues: make(map[int64][]string),
@@ -187,6 +188,10 @@ func (f *follower) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse
 
 func (f *follower) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncResponse, error) {
 	log.Printf("Received Sync request %v", req)
+	if _, ok := f.store[req.Key]; !ok {
+		return nil, errors.New(fmt.Sprint("sync message discarded because the key %v is not found", req.Key))
+	}
+
 	askForVers := req.AskFor.Versions
 	incomingData := req.MyData
 	var outValues []*pb.Value
@@ -207,10 +212,12 @@ func (f *follower) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncRespo
 	}
 
 	// Also cosume the incoming data
-	mydata[incomingData.Version] = incomingData.Values
-	// Incoming version should always be the latest version
-	log.Printf("current latest version is %v, incoming version is %v", f.store[req.Key].latestVersion, incomingData.Version)
-	f.store[req.Key].latestVersion = incomingData.Version
+	if incomingData != nil {
+		mydata[incomingData.Version] = incomingData.Values
+		// Incoming version should always be the latest version
+		log.Printf("current latest version is %v, incoming version is %v", f.store[req.Key].latestVersion, incomingData.Version)
+		f.store[req.Key].latestVersion = incomingData.Version
+	}
 
 	return &pb.SyncResponse{
 		Key:   req.Key,
@@ -351,6 +358,23 @@ func (f *follower) handleUpdate(key string) error {
 // TODO: Handle.
 func (f *follower) Notify(ctx context.Context, req *pb.NotifyRequest) (*pb.NotifyResponse, error) {
 	log.Printf("Got a notification")
+	data := f.store[req.Key]
+	localVer := data.latestVersion
+	askForVers := askForVersions(req.Version, localVer)
+	syncReq := &pb.SyncRequest{
+		Key:    req.Key,
+		AskFor: askForVers,
+		// Not carrying mydata, since it is expected to be outdated.
+	}
+	s := &syncRequest{
+		req:         syncReq,
+		primaryID:   req.Primary.FollowerId,
+		primaryAddr: req.Primary.Address,
+		backupID:    req.Backup.FollowerId,
+		backupAddr:  req.Backup.Address,
+	}
+	data.syncReqChan <- s
+	log.Printf("sync request is in the channel")
 	return &pb.NotifyResponse{
 		Success: true,
 	}, nil
