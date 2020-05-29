@@ -173,11 +173,11 @@ func (f *follower) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse
 	if d, ok := f.store[req.Key]; ok {
 		for _, v := range d.versionToValues {
 			result = append(result, v...)
+
+			// then append all of the data that still waiting for update.
+			result = append(result, f.store[req.Key].buffer...)
 		}
 	}
-
-	// then append all of the data that still waiting for update.
-	result = append(result, f.store[req.Key].buffer...)
 
 	log.Printf("Get result is: [%v]", result)
 
