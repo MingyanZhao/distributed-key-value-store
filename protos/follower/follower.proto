@@ -4,6 +4,8 @@ option go_package = "distributed-key-value-store/protos/follower";
 
 package follower;
 
+import "config/config.proto";
+
 service Follower {
     // Append a new value to a key. Only sent by clients.
     rpc Put(PutRequest) returns (PutResponse) {}
@@ -91,6 +93,14 @@ message Value {
 
 message NotifyRequest {
     string key = 1;
+    // The version of the updated key that the follower should sync to.
+    int64 version = 2;
+
+    // The follower to be contacted for syncing.
+    config.FollowerEndpoint primary = 3;
+
+    // A backup follower in case pre_primary is unreachable.
+    config.FollowerEndpoint backup = 4;
 }
 
 message NotifyResponse {

@@ -13,6 +13,15 @@ message Configuration {
     map<string, ServiceAddress> followers = 2;
 }
 
+// TODO: This could be moved to the config proto
+message FollowerEndpoint {
+    // The follower's service.
+    config.ServiceAddress address = 1;
+
+    // A unique follower ID.
+    string follower_id = 2;
+}
+
 // The address of a service in the system.
 message ServiceAddress {
     // The hostname or human-readable IP address.

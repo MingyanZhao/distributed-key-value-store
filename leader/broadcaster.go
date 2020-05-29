@@ -143,6 +143,9 @@ func (nt notifier) notify(key string, resp *pb.UpdateResponse) {
 		go func(id string, client fpb.FollowerClient) {
 			req := fpb.NotifyRequest{
 				Key: key,
+				// PrePrimary and Prebackup may not be correct if it is a periodic broadcasting.
+				Primary: resp.PrePrimary,
+				Backup:  resp.PreBackup,
 			}
 			// TODO: Handle.
 			_, err := client.Notify(context.Background(), &req)

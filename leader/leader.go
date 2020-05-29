@@ -146,12 +146,12 @@ func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateR
 	resp := &pb.UpdateResponse{
 		Version: l.keyVersionMap.data[req.Key].version,
 		Result:  result,
-		PrePrimary: &pb.FollowerEndpoint{
+		PrePrimary: &cpb.FollowerEndpoint{
 			Address:    prePrimary.followerAddr,
 			FollowerId: prePrimary.followerID,
 		},
 		// TODO: implement backup follower setting. Now the primary and the backup are the same
-		PreBackup: &pb.FollowerEndpoint{
+		PreBackup: &cpb.FollowerEndpoint{
 			Address:    prePrimary.followerAddr,
 			FollowerId: prePrimary.followerID,
 		},
@@ -159,8 +159,10 @@ func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateR
 
 	// There's been a successful update. Notify followers.
 	// Not sure if we want to notify every follower in the update message.
-	// We definitely can! But Braodcast here means the followers would do a lot of sync on every request.
-	// Comment it out temporarily for testing.
+	// Braodcasting here means the followers would do a lot of sync on every request.
+	// Since the version will be commited after the follower recives the update response,
+	// the key that is being asked for may not yet be commited and therefore broadcasting might not working as expected.
+	// TODO: Comment it out temporarily for testing.
 	// l.broadcaster.enqueue(req.Key, resp)
 
 	log.Printf("leader replying update response %v", resp)
