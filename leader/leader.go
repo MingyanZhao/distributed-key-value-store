@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"net"
 	"sync"
@@ -23,6 +24,8 @@ const (
 	casterFlagPeriodic  = "periodic"
 
 	timeoutFlag = "timeout"
+
+	keyVersionMapConcurrency = 32
 )
 
 var (
@@ -31,10 +34,27 @@ var (
 )
 
 type keyvaluemap struct {
-	// TODO: per key automic update?
-	// Different keys should be updated concurrently. So each key should have a lock.
-	m    sync.RWMutex
+	// Improve concurrency by sharding the locks.
+	// Avoid using sync.Map which is design for append-only and mostly-read cases
+	// https://github.com/golang/go/issues/20360
+	m    [keyVersionMapConcurrency]sync.RWMutex
 	data map[string]*versioninfo
+}
+
+func (kvm *keyvaluemap) lockKey(key string) {
+	slot := hashKey(key)
+	kvm.m[slot].Lock()
+}
+
+func (kvm *keyvaluemap) unlockKey(key string) {
+	slot := hashKey(key)
+	kvm.m[slot].Unlock()
+}
+
+func hashKey(key string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(key))
+	return h.Sum32() % keyVersionMapConcurrency
 }
 
 // leader implements the leader service.
@@ -88,8 +108,8 @@ func newLeader(configuration *cpb.Configuration) (*leader, error) {
 
 func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateResponse, error) {
 	log.Printf("leader received update request %v", req)
-	l.keyVersionMap.m.Lock()
-	defer l.keyVersionMap.m.Unlock()
+	l.keyVersionMap.lockKey(req.Key)
+	defer l.keyVersionMap.unlockKey(req.Key)
 
 	// Update the version info for the key.
 	if l.keyVersionMap.data[req.Key] == nil {
