@@ -67,7 +67,7 @@ message AskFor {
 
 // Contains the current values at a certain version.
 message Mydata {
-    string version = 1;
+    int64 version = 1;
     repeated string values = 2;
 }
 
