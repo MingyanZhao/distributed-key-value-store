@@ -1,0 +1,76 @@
+\documentclass[11pt,english,twocolumn]{article}
+
+\title{Append-only Datastore}
+\author{
+	Mingyan Zhao
+	\and
+	Steven Tung
+	\and
+	Kevin Krakauer
+}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+% Calling our operation "put" is inherently confusing, I'm using "append".
+
+\begin{abstract}
+Append-only datastore is an eventually consistent, append-only datastore focused
+on low read/write latency and high availability. In the common case, clients
+interact with nearby nodes only for extremely low latency. We store every input
+value for a given key in a value list, but do not provide overwrite and delete
+operations. We provide a simple interface that guarantees properties making
+client implementation simple: the relative order of data for a given key is
+consistent and only requires communication with a single node.
+
+The datastore is eventually consistent. Data is stored in memory for low latency
+and in local disk for safety. Nodes can operate when disconnected from the
+system, preserving availability in the face of total and long-term partitioning.
+We believe this system will be useful in chat and distributed logging
+applications.
+\end{abstract}
+
+\section{Introduction}
+La-de-da-de-da an intro.
+
+\section{Design}
+We made it go super fast like vroom-vroom.
+
+\subsection{Leader}
+It synchronizes n'stuff.
+
+\subsection{Follower}
+% Be sure to discuss any synchronization that happens here, as the follower is
+% responsible for synchronizing its the writes to it.
+It also sorta synchronizes, but mostly it follows.
+
+\subsection{Clients}
+% Describe the API and guarantees exposed to clients.
+We have very distinguished clientele.
+
+\section{Implementation}
+
+\section{Evaluation}
+We tested using some super cool gcloud stuff.
+
+\subsection{Workload 1}
+Oh wow, we're so fast.
+
+\subsection{Workload 2}
+Oh no, we're unexpectedly not that fast.
+
+\section{Related Work}
+This is the most filler of all filler sections. Look, a reference! \cite{dynamo}
+
+\section{Future Work}
+Make it actually work.
+
+\section{Conclusions}
+I'd just like everyone to pat themselves on the back here.
+
+\bibliography{paper} 
+\bibliographystyle{ieeetr}
+
+\end{document}

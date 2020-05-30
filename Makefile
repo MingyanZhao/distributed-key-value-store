@@ -44,9 +44,24 @@ build: bin/leader bin/follower bin/client bin/test_client
 clean:
 	-rm -rf bin
 	-rm -f protos/*/*.pb.go
+	-rm -f paper/*.aux paper/*.log paper/*.pdf paper/*.bbl paper/*.blg
 
 .PHONY: FORCE
 FORCE:
+
+#
+# Paper
+#
+
+.PHONY: paper
+paper: paper/paper.pdf
+
+paper/paper.pdf: paper/paper.tex paper/paper.bib
+	cd paper && \
+		pdflatex paper && \
+		bibtex paper && \
+		pdflatex paper && \
+		pdflatex --jobname=paper paper
 
 #
 # Docker rules
