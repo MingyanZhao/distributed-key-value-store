@@ -67,7 +67,8 @@ type data struct {
 	updateReqChan chan *lpb.UpdateRequest
 
 	// syncReqChan is the channel that sending the sync requests to the target followers
-	syncReqChan chan *syncRequest
+	syncReqChan  chan *syncRequest
+	syncReqQueue []*syncRequest
 
 	// syncRespChan is the channel that handles the received sync responses.
 	syncRespChan chan *pb.SyncResponse
@@ -133,6 +134,7 @@ func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse
 		f.store[req.Key] = &data{
 			updateReqChan:   make(chan *lpb.UpdateRequest, 100),
 			syncReqChan:     make(chan *syncRequest, 100),
+			syncReqQueue:    make([]*syncRequest, 0),
 			done:            make(chan bool),
 			buffer:          make([]string, 0),
 			versionToValues: make(map[int64][]string),
@@ -175,8 +177,9 @@ func (f *follower) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse
 			result = append(result, v...)
 
 			// then append all of the data that still waiting for update.
-			result = append(result, f.store[req.Key].buffer...)
+
 		}
+		result = append(result, f.store[req.Key].buffer...)
 	}
 
 	log.Printf("Get result is: [%v]", result)
@@ -239,6 +242,10 @@ func (f *follower) sendUpdate(key string) {
 	f.store[key].updateReqChan <- updateReq
 }
 
+func (f *follower) sendSync(data *data, req *syncRequest) {
+	data.syncReqQueue = append(data.syncReqQueue, req)
+}
+
 func (f *follower) handleSync(key string) error {
 	log.Printf("start sync handler for key %v", key)
 	syncReqChan := f.store[key].syncReqChan
@@ -279,16 +286,18 @@ func (f *follower) handleSync(key string) error {
 				if d, ok := myData[v.Version]; ok {
 					err := fmt.Errorf("something went wrong, the version number should not be conflicting, key %v, existing data %v, incomming data %v", key, d, v)
 					log.Println(err)
-					return err
+					continue
 				}
 				myData[v.Version] = v.Value
 			}
 			f.store[key].versionToValueLock.Unlock()
+
 			log.Printf("SyncResp done, %v", syncResp)
 		}
 	}
 }
 
+// askForVersions generates a list of versions in an open range of (localVer, globalVer)
 func askForVersions(globalVer, localVer int64) *pb.AskFor {
 	result := &pb.AskFor{}
 	var i int64
@@ -321,6 +330,7 @@ func (f *follower) handleUpdate(key string) error {
 			data := f.store[key]
 			globalVer := updateResp.Version
 			localVer := data.latestVersion
+			// The input argument globalVer below means not asking for the latest version, but the missing version between globalVer and localVer.
 			askForVers := askForVersions(globalVer, localVer)
 
 			// Upon receiving an update response, move the buffered data data to commited values
@@ -357,10 +367,21 @@ func (f *follower) handleUpdate(key string) error {
 
 // TODO: Handle.
 func (f *follower) Notify(ctx context.Context, req *pb.NotifyRequest) (*pb.NotifyResponse, error) {
-	log.Printf("Got a notification")
+	log.Printf("Got a notification, %v", req)
+	if _, ok := f.store[req.Key]; !ok {
+		return nil, fmt.Errorf("key not found %v", req.Key)
+	}
+
 	data := f.store[req.Key]
 	localVer := data.latestVersion
-	askForVers := askForVersions(req.Version, localVer)
+	if localVer == req.Version {
+		// No need to update
+		return &pb.NotifyResponse{Success: true}, nil
+	}
+
+	// The global versioin argument below needs a +1, which means also asking for the latest version on the target follower.
+	// It does not need to ask for the local version either since it already has it.
+	askForVers := askForVersions(req.Version+1, localVer)
 	syncReq := &pb.SyncRequest{
 		Key:    req.Key,
 		AskFor: askForVers,
@@ -373,8 +394,14 @@ func (f *follower) Notify(ctx context.Context, req *pb.NotifyRequest) (*pb.Notif
 		backupID:    req.Backup.FollowerId,
 		backupAddr:  req.Backup.Address,
 	}
+	log.Printf("sync request is in the channel, %v", s)
 	data.syncReqChan <- s
-	log.Printf("sync request is in the channel")
+
+	// TODO: Need to think about if this is safe.
+	// The version is updated after handling the braodcasting notification.
+	// SInce we have asked for till the req.Version+1, the local version needs to be updated to that.
+	data.latestVersion = req.Version
+
 	return &pb.NotifyResponse{
 		Success: true,
 	}, nil

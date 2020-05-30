@@ -77,7 +77,6 @@ func getData(c flpb.FollowerClient) {
 		if err != nil {
 			log.Fatalf("%v.Get(_) = _, %v: ", c, err)
 		}
-		log.Printf("Get(%v) =  %v", k, resp)
 		result = append(result, resp.Values...)
 	}
 	sort.Strings(result)
@@ -114,10 +113,14 @@ func main() {
 	// Send requests
 	sentRequests(client)
 
+	// Get the data
+	log.Printf("Get data first time")
+	getData(client)
+
 	// Wait for other test clients to finish
-	time.Sleep(3 * time.Second)
-	log.Printf("Clinet done")
+	time.Sleep(10 * time.Second)
 
 	// Get the data
+	log.Printf("Get data second time")
 	getData(client)
 }

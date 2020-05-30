@@ -8,11 +8,13 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 
 	"google.golang.org/grpc"
 
 	config "distributed-key-value-store/config"
 	cpb "distributed-key-value-store/protos/config"
+	fpb "distributed-key-value-store/protos/follower"
 	pb "distributed-key-value-store/protos/leader"
 	"distributed-key-value-store/util"
 )
@@ -22,8 +24,9 @@ const (
 	casterFlag          = "caster"
 	casterFlagImmediate = "immediate"
 	casterFlagPeriodic  = "periodic"
-
-	timeoutFlag = "timeout"
+	// Simple braodcasting means that the leader send a Notification of all of the key-version info to all of followers
+	casterFlagSimple = "simple"
+	timeoutFlag      = "timeout"
 
 	keyVersionMapConcurrency = 32
 )
@@ -67,6 +70,10 @@ type leader struct {
 
 	// broadcaster sends updates to all followers when an update occurs.
 	broadcaster broadcaster
+
+	done chan bool
+
+	followers map[string]fpb.FollowerClient
 }
 
 type versioninfo struct {
@@ -86,6 +93,7 @@ func newLeader(configuration *cpb.Configuration) (*leader, error) {
 	// Pick a broadcast mechanism.
 	var bc broadcaster
 	var err error
+	var follwers map[string]fpb.FollowerClient
 	switch *caster {
 	case casterFlagImmediate:
 		if bc, err = newImmediate(configuration); err != nil {
@@ -93,6 +101,11 @@ func newLeader(configuration *cpb.Configuration) (*leader, error) {
 		}
 	case casterFlagPeriodic:
 		if bc, err = newPeriodic(configuration); err != nil {
+			return nil, err
+		}
+	case casterFlagSimple:
+		follwers, err = loadFollowers(configuration)
+		if err != nil {
 			return nil, err
 		}
 	default:
@@ -103,6 +116,7 @@ func newLeader(configuration *cpb.Configuration) (*leader, error) {
 		configuration: configuration,
 		keyVersionMap: keyvaluemap{data: make(map[string]*versioninfo)},
 		broadcaster:   bc,
+		followers:     follwers,
 	}, nil
 }
 
@@ -169,6 +183,55 @@ func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateR
 	return resp, nil
 }
 
+func loadFollowers(config *cpb.Configuration) (map[string]fpb.FollowerClient, error) {
+	// Establish a GRPC client for each follower.
+	followers := make(map[string]fpb.FollowerClient)
+	for id, service := range config.Followers {
+		conn, err := grpc.Dial(util.FormatServiceAddress(service), grpc.WithInsecure())
+		if err != nil {
+			return nil, fmt.Errorf("failed to dial follower %q service %v: %v", id, service, err)
+		}
+		followers[id] = fpb.NewFollowerClient(conn)
+	}
+	return followers, nil
+}
+
+func (l *leader) broadcasting() {
+	log.Printf("Sending broadcasting request per 2 seconds")
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	ctx := context.Background()
+	for {
+		select {
+		case <-l.done:
+			log.Println("done broadcasting")
+			return
+		case <-ticker.C:
+			log.Println("broadcast...")
+			for id, fc := range l.followers {
+				for k, vi := range l.keyVersionMap.data {
+					if id == vi.fInfo.followerID {
+						continue
+					}
+					req := &fpb.NotifyRequest{
+						Key:     k,
+						Version: vi.version,
+						Primary: &cpb.FollowerEndpoint{
+							Address:    vi.fInfo.followerAddr,
+							FollowerId: vi.fInfo.followerID,
+						},
+						// TODO: Fix logic for backup follower
+						Backup: &cpb.FollowerEndpoint{
+							Address:    vi.fInfo.followerAddr,
+							FollowerId: vi.fInfo.followerID},
+					}
+					fc.Notify(ctx, req)
+				}
+			}
+		}
+	}
+}
+
 func main() {
 	flag.Parse()
 
@@ -184,6 +247,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create leader: %v", err)
 	}
+
+	if *caster == casterFlagSimple {
+		go ldr.broadcasting()
+	}
+
 	pb.RegisterLeaderServer(grpcServer, ldr)
 	grpcServer.Serve(lis)
 }
