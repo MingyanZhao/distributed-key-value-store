@@ -60,6 +60,8 @@ go run distributed-key-value-store/follower --follower_id=0
 go run distributed-key-value-store/client --follower_id=0
 ```
 
+You can specify the broadcast type by using flag `--cast`, the supporting types are `immediate`, `periodic` and `simple`.
+
 # Running with Docker
 
 1. Run `make docker` to build the three docker images: `dkvs-leader`,
