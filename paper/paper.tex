@@ -16,30 +16,87 @@
 
 % Calling our operation "put" is inherently confusing, I'm using "append".
 
-\begin{abstract}
-Append-only datastore is an eventually consistent, append-only datastore focused
-on low read/write latency and high availability. In the common case, clients
-interact with nearby nodes only for extremely low latency. We store every input
-value for a given key in a value list, but do not provide overwrite and delete
-operations. We provide a simple interface that guarantees properties making
-client implementation simple: the relative order of data for a given key is
-consistent and only requires communication with a single node.
+\section*{}
+We built an eventually consistent, append-only datastore focused on low
+read/write latency and high availability. In the common case, clients interact
+only with nearby nodes for extremely low latency. We do not provide overwrite
+and delete operations. This simple interface guarantees properties making client
+implementation simple: the relative order of data for a given key is consistent
+and each client communicates only with a single node.
 
 The datastore is eventually consistent. Data is stored in memory for low latency
 and in local disk for safety. Nodes can operate when disconnected from the
 system, preserving availability in the face of total and long-term partitioning.
 We believe this system will be useful in chat and distributed logging
 applications.
-\end{abstract}
 
 \section{Introduction}
-La-de-da-de-da an intro.
+As organizations increasingly move to the cloud, applications are designed from
+the ground up with a distributed architecture (in some cases referred to as
+\textit{microservices}). Despite numerous advantages, distributed
+application design requires addressing latency and partitioning concerns that
+monolithic applications do not have (or in the case of partitioning, are not
+solvable).
+
+Our \textit{append-only datastore} addresses latency and partitioning concerns
+for append-only workloads. By explicitly distinguishing between a
+\textit{master} node and \textit{follower} nodes, we gain several advantages
+over other eventually consistent systems:
+
+\begin{enumerate}
+	\item Clients communicate only with their nearest follower for extremely
+		low latency.
+	\item Followers provide linearizability for client appends on a single
+		key. That is, all clients writing to the same key of the same
+		follower will see linearized writes.
+	\item Eventual consistency is minimally disruptive to clients. A client
+		may read the data for key $k$ and receive data consisting of 2
+		writes: $w_1, w_2$. Write $w_x$ sent through another follower
+		preserves the ordering of $w_1$ and $w_2$, so the system
+		eventually returns $w_x, w_1, w_2$, $w_1, w_x, w_2$, or $w_1,
+		w_2, w_x$ when read.  Because of (2), writes directly to the
+		same follower are linearizable.
+\end{enumerate}
+
+We also gain the advantages of some more traditionally eventually consistent
+systems, such as great partition tolerance \cite{dynamo}. Together, these
+properties are highly desirable for many append-only applications. Consider the
+following:
+
+\begin{itemize}
+	\item \textbf{Chat} - Chat applications are inherently append-only. Users
+		in different parts of the globe expect near-instantaneous (only
+		a few seconds) latency. Users in the same building, however,
+		expect to receive messages instantaneously. Think of a global
+		company: teammates send messages and links to nearby teammates,
+		expecting them to arrive immediately. Consider a chatroom
+		occupied by a team in North American and a team in Asia. Each
+		team member sees their local peers' messages immediately and in
+		exactly the order that they are sent. It's acceptable for the a
+		message from the other team to take a bit longer and appear
+		slightly out of order in the logged chat.
+	\item \textbf{Distributed logging} - Consider a distributed application
+		running in multiple data centers on multiple continents. The
+		application is monitored in real time in each datacenter. Logs
+		are write-only, and critical for monitoring. By using the
+		append-only datastore for logging, the monitoring service:
+		\begin{itemize}
+			\item Continues operating when a datacenter is
+				partitioned from the rest of the system.
+			\item Receives logs with extremely low latency from the
+				nearby monitored application.
+			\item Has an eventually consistent log that can be
+				stored for later analysis and debugging.
+		\end{itemize}
+	% \item \textbf{Distributed data processing}
+\end{itemize}
 
 \section{Design}
-We made it go super fast like vroom-vroom.
+We made it go super fast.
 
 \subsection{Leader}
-It synchronizes n'stuff.
+% Reference GFS and not transporting the data itself.
+It synchronizes stuff.
 
 \subsection{Follower}
 % Be sure to discuss any synchronization that happens here, as the follower is
@@ -62,6 +119,7 @@ Oh wow, we're so fast.
 Oh no, we're unexpectedly not that fast.
 
 \section{Related Work}
+% Talk about Kafka
 This is the most filler of all filler sections. Look, a reference! \cite{dynamo}
 
 \section{Future Work}
