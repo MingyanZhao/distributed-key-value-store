@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -192,7 +191,7 @@ func (f *follower) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse
 func (f *follower) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncResponse, error) {
 	log.Printf("Received Sync request %v", req)
 	if _, ok := f.store[req.Key]; !ok {
-		return nil, errors.New(fmt.Sprint("sync message discarded because the key %v is not found", req.Key))
+		return nil, fmt.Errorf("sync message discarded because the key %v is not found", req.Key)
 	}
 
 	askForVers := req.AskFor.Versions
@@ -355,7 +354,9 @@ func (f *follower) handleUpdate(key string) error {
 					backupID:    updateResp.PreBackup.FollowerId,
 					backupAddr:  updateResp.PreBackup.Address,
 				}
-				data.syncReqChan <- s
+				go func() {
+					data.syncReqChan <- s
+				}()
 				log.Printf("sync request is in the channel")
 			}
 			data.buffer = data.buffer[:0]
@@ -395,7 +396,9 @@ func (f *follower) Notify(ctx context.Context, req *pb.NotifyRequest) (*pb.Notif
 		backupAddr:  req.Backup.Address,
 	}
 	log.Printf("sync request is in the channel, %v", s)
-	data.syncReqChan <- s
+	go func() {
+		data.syncReqChan <- s
+	}()
 
 	// TODO: Need to think about if this is safe.
 	// The version is updated after handling the braodcasting notification.
