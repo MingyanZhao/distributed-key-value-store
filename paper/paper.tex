@@ -52,10 +52,10 @@ over other eventually consistent systems:
 		follower will see linearized writes.
 	\item Eventual consistency is minimally disruptive to clients. A client
 		may read the data for key $k$ and receive data consisting of 2
-		writes: $w_1, w_2$. Write $w_x$ sent through another follower
-		preserves the ordering of $w_1$ and $w_2$, so the system
-		eventually returns $w_x, w_1, w_2$, $w_1, w_x, w_2$, or $w_1,
-		w_2, w_x$ when read.  Because of (2), writes directly to the
+		writes' data: $d_1, d_2$. Write $x$ with data $d_x$ sent through another follower
+		preserves the ordering of $d_1$ and $d_2$, so the system
+		eventually returns $d_x, d_1, d_2$, $d_1, d_x, d_2$, or $d_1,
+		d_2, d_x$ when read.  Because of (2), writes directly to the
 		same follower are linearizable.
 \end{enumerate}
 
@@ -108,9 +108,9 @@ Clients are exposed the following API by followers:
 		after any data that the client already read for \texttt{key}.
 	\item \texttt{get(key)} - Gets the data for \texttt{key}, expressed as a
 		list of indexed values. For example, the returned data will be
-		the result of writes 1, 3, and 5, expressed as $\{w_1, w_3,
-		w_5\}$. Subsequent \texttt{get} requests will always return
-		$w_1$, $w_3$, and $w_5$ in the same relative order, but other
+		the result of writes 1, 3, and 5, expressed as $\{d_1, d_3,
+		d_5\}$. Subsequent \texttt{get} requests will always return
+		$d_1$, $d_3$, and $d_5$ in the same relative order, but other
 		writes may be prepended, appended, or interspersed.
 \end{itemize}
 
@@ -142,7 +142,8 @@ write. When a client appends data to key \texttt{k}, the follower writes that
 data - along with its index - to local disk before returning to the client. This
 ensures that data is not lost upon crashing and rebooting. For increased fault
 tolerance, the append should be written to multiple disks locally or to a remote
-disk.
+disk. Note that throughout this section when we refer to updating local storage,
+the in-memory store is also updated immediately after data is written to disk.
 
 As soon as the append is written to disk, the follower (concurrently with
 replying to the client) sends an \texttt{update} request to the leader
@@ -152,7 +153,7 @@ other concurrent appends from different followers (see next section), and
 responds.
 
 There are two types of responses. The first - and likely most common - case
-is a simple \texttt{SUCCESS} response. This indicates that the append committed
+is a simple \texttt{SUCCESS} response. This indicates that the append completed
 successfully and the follower has up-to-date data for that key. The second is a
 \texttt{NEEDS\_UPDATE} response. This indicates that the data was appended, but
 another \texttt{update} preempted it. In this scenario, the follower changes the
@@ -163,10 +164,57 @@ Followers use the \texttt{sync} request to get data they are missing,
 effectively ``patching the holes" in their local datastore. This ensures the
 eventually consistent property of the system.
 
-In the common case, where updates do not overlap...
+\subsubsection{Common Case}
+When updates do not overlap, the follower handles \texttt{append} requests as
+follows:
 
-When concurrent updates do occur...
+\begin{enumerate}
+	\item Write the append to local storage along with the index \texttt{i}
+		the follower believes applies to the append.
+	\item Respond to the client that the request was successful.
+	\item Concurrently with (2), send an \texttt{update} to the leader that
+		an append occured on key \texttt{k} at index \texttt{i}.
+	\item The leader responds with \texttt{SUCCESS}.
+	\item The follower updates local disk to indicate that the append has
+		been commited at index \texttt{i} by the leader.
+\end{enumerate}
 
+The data for key \texttt{k} has simply benn appended to, changing from $\{d_a,
+d_b, d_c, ..., d_{i-1}\}$ to $\{d_a, d_b, d_c, ..., d_{i-1}, d_i\}$, where $a < b <
+c < i$. Note that there may be data ``holes" between $a$, $b$, $c$, and $i$ not
+yet filled in by either a \texttt{get} or \texttt{sync}.
+
+\subsubsection{Conccurent Updates}
+When concurrent updates occur:
+
+% TODO: There's some ugly mixing of texttt and math notation here, particularly
+% around i'.
+\begin{enumerate}
+	\item The same as steps 1-3 above.
+	\item The leader responds with \texttt{NEEDS\_UPDATE}.
+	\item The follower updates local disk to indicate that the append has
+		been commited at index \texttt{i`} by the leader.
+	\item The follower sends a \texttt{sync} request to the follower that
+		appended the data at index \texttt{i`-1}, as indicated in the
+		leader's response.
+	\item The follower receives and stores on local disk the data it was
+		missing, including what the leader deemed to be the ``winner" of
+		index \texttt{i}.
+\end{enumerate}
+
+The data for key \texttt{k} in this case is an append and a reordering,
+changing from $\{d_a, d_b, d_c, ..., d_{i-1}\}$ to $\{d_a, d_b, d_c, ...,
+d_{i-1}, d_i, d_{i'}\}$, where $a < b < c < i$ and as above may have more holes
+to fill.
+
+% TODO: We don't yet implement the early return of data.
+It is possible for a chain of \texttt{sync} requests to form when more than 2
+followers append a key at the same time. If follower $a$ starts syncing with
+follower $b$, which is already waiting on follower $c$ to respond to a
+\texttt{sync}, $b$ will send what is knows to $a$. $a$ then retries to get
+missing data, at which point $b$ waits to respond until it has new data to send.
+
+\subsubsection{Follower Fault Tolerance}
 Both \texttt{update} and \texttt{sync} requests are retried in case of network
 failure. If a follower reboots during a \texttt{update}, it can inspect the disk
 at boot and see that it has appended data locally that has not been confirmed by
@@ -183,11 +231,11 @@ It synchronizes stuff.
 % Describe the API and guarantees exposed to clients.
 We have very distinguished clientele.
 
-\subsection{Common Case}
-
 \subsection{Corner Cases}
 % Multiple simultaneous writes from c1 and c2 to f1. How do we ensure that the
 % GL does not order w2 before w1?
+% What if the sync request can be partially satisfied. Do we not respond, or
+% respond partially and expect another sync request from the same follower?
 
 \section{Implementation}
 
