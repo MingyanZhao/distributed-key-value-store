@@ -16,59 +16,356 @@
 
 % Calling our operation "put" is inherently confusing, I'm using "append".
 
-\begin{abstract}
-Append-only datastore is an eventually consistent, append-only datastore focused
-on low read/write latency and high availability. In the common case, clients
-interact with nearby nodes only for extremely low latency. We store every input
-value for a given key in a value list, but do not provide overwrite and delete
-operations. We provide a simple interface that guarantees properties making
-client implementation simple: the relative order of data for a given key is
-consistent and only requires communication with a single node.
+\section*{}
+We built an eventually consistent, append-only datastore focused on low
+read/write latency and high availability. In the common case, clients interact
+only with nearby nodes for extremely low latency. We do not provide overwrite
+and delete operations. This simple interface guarantees properties making client
+implementation simple: the relative order of data for a given key is consistent
+and each client communicates only with a single node.
 
 The datastore is eventually consistent. Data is stored in memory for low latency
 and in local disk for safety. Nodes can operate when disconnected from the
 system, preserving availability in the face of total and long-term partitioning.
 We believe this system will be useful in chat and distributed logging
 applications.
-\end{abstract}
 
 \section{Introduction}
-La-de-da-de-da an intro.
+As organizations increasingly move to the cloud, applications are designed from
+the ground up with a distributed architecture (in some cases referred to as
+\textit{microservices}). Despite numerous advantages, distributed
+application design requires addressing latency and partitioning concerns that
+monolithic applications do not have (or in the case of partitioning, are not
+solvable).
+
+Our \textit{append-only datastore} addresses latency and partitioning concerns
+for append-only workloads. It is designed to run as a service distributed
+globally across multiple data centers. By explicitly distinguishing between a
+\textit{leader} node and \textit{follower} nodes, we gain several advantages
+over other eventually consistent systems:
+
+\begin{enumerate}
+	\item Clients communicate only with their nearest follower for extremely
+		low latency.
+	\item Followers provide linearizability for client appends on a single
+		key. That is, all clients writing to the same key of the same
+		follower will see linearized writes.
+	\item Eventual consistency is minimally disruptive to clients. A client
+		may read the data for key $k$ and receive data consisting of 2
+		writes' data: $d_1, d_2$. Write $x$ with data $d_x$ sent through another follower
+		preserves the ordering of $d_1$ and $d_2$, so the system
+		eventually returns $d_x, d_1, d_2$, $d_1, d_x, d_2$, or $d_1,
+		d_2, d_x$ when read.  Because of (2), writes directly to the
+		same follower are linearizable.
+\end{enumerate}
+
+We also gain the advantages of some more traditionally eventually consistent
+systems, such as great partition tolerance \cite{Dynamo}. Together, these
+properties are highly desirable for many append-only applications. Consider the
+following:
+
+\begin{itemize}
+	\item \textbf{Chat} - Chat applications are inherently append-only. Users
+		in different parts of the globe expect near-instantaneous (only
+		a few seconds) latency. Users in the same building, however,
+		expect to receive messages instantaneously. Think of a global
+		company: teammates send messages and links to nearby teammates,
+		expecting them to arrive immediately. Consider a chatroom
+		occupied by a team in North American and a team in Asia. Each
+		team member sees their local peers' messages immediately and in
+		exactly the order that they are sent. It's acceptable for the a
+		message from the other team to take a bit longer and appear
+		slightly out of order in the logged chat.
+	\item \textbf{Distributed logging} - Consider a distributed application
+		running in multiple data centers on multiple continents. The
+		application is monitored in real time in each datacenter. Logs
+		are write-only, and critical for monitoring. By using the
+		append-only datastore for logging, the monitoring service:
+		\begin{itemize}
+			\item Continues operating when a datacenter is
+				partitioned from the rest of the system.
+			\item Receives logs with extremely low latency from the
+				nearby monitored application.
+			\item Has an eventually consistent log that can be
+				stored for later analysis and debugging.
+		\end{itemize}
+	% \item \textbf{Distributed data processing}
+\end{itemize}
 
 \section{Design}
-We made it go super fast like vroom-vroom.
+% TODO: Add architecture diagram.
+Nodes in the append-only datastore are classified in a simple hierarchy as seen
+in TODO(add the architecture diagram). A single \textit{leader} directs multiple
+\textit{followers}. Clients connect to and communicate with a nearby follower,
+likely running in the same datacenter, to minimize latency. Our design tolerates
+arbitrary partitions between nodes and ensures an eventually consistent view of
+data.
 
-\subsection{Leader}
-It synchronizes n'stuff.
+Clients are exposed the following API by followers:
+\begin{itemize}
+	\item \texttt{append(key, data)} - Appends \texttt{data} to the existing
+		data for \texttt{key}. Guarantees that \texttt{data} appears
+		after any data that the client already read for \texttt{key}.
+	\item \texttt{get(key)} - Gets the data for \texttt{key}, expressed as a
+		list of indexed values. For example, the returned data will be
+		the result of writes 1, 3, and 5, expressed as $\{d_1, d_3,
+		d_5\}$. Subsequent \texttt{get} requests will always return
+		$d_1$, $d_3$, and $d_5$ in the same relative order, but other
+		writes may be prepended, appended, or interspersed.
+\end{itemize}
 
 \subsection{Follower}
+% Explain what happens when this is partitioned.
+% Explain read-your-own-writes consistency.
 % Be sure to discuss any synchronization that happens here, as the follower is
 % responsible for synchronizing its the writes to it.
-It also sorta synchronizes, but mostly it follows.
+The follower is our most complex component. Its responsibilities include:
+
+\begin{itemize}
+	\item Handing \texttt{append} and \texttt{get} requests from clients.
+	\item Ordering appends.
+	\item Updating the leader about appended data.
+	\item Receiving the eventual, global ordering of data from the leader
+		and imposing it on data.
+	\item Syncing with other followers to communicate updates and orderings.
+\end{itemize}
+
+% TODO: We don't actually do the update-on-get thing yet.
+Each follower stores the entire datastore locally in memory. When clients issue
+\texttt{get(k)} requests, these are served from the in-memory datastore to minimize
+response latency. It also causes the follower to ask the leader for the most
+up-to-date data for \texttt{k}, ensuring that frequently accessed data is kept
+relatively fresh.
+
+\texttt{append} requests are also fast, limited by the speed of a local disk
+write. When a client appends data to key \texttt{k}, the follower writes that
+data - along with its index - to local disk before returning to the client. This
+ensures that data is not lost upon crashing and rebooting. For increased fault
+tolerance, the append should be written to multiple disks locally or to a remote
+disk as well. Note that throughout this section when we refer to updating local
+storage, the in-memory store is also updated immediately after data is written
+to disk.
+
+As soon as the append is written to disk, the follower (concurrently with
+replying to the client) sends an \texttt{update} request to the leader
+containing the key being appended to and the index that the follower has
+assigned the appended data. The leader resolves and orders the append with any
+other concurrent appends from different followers (see next section), and
+responds.
+
+There are two types of responses. The first - and likely most common - case
+is a simple \texttt{SUCCESS} response. This indicates that the append completed
+successfully and the follower has up-to-date data for that key. The second is a
+\texttt{NEEDS\_UPDATE} response. This indicates that the data was appended, but
+another \texttt{update} preempted it. In this scenario, the follower changes the
+locally stored index of the appended data, and sends a \texttt{sync} request
+another follower indicated by the leader's response.
+
+Followers use the \texttt{sync} request to get data they are missing,
+effectively ``patching the holes" in their local datastore. This ensures the
+eventually consistent property of the system. \texttt{sync} requests also signal
+what data the sender has to the recipient, enabling the recipient to also patch
+holes in its local datastore.
+
+\subsubsection{Common Case}
+When updates do not overlap, the follower handles \texttt{append} requests as
+follows:
+
+\begin{enumerate}
+	\item Write the append to local storage along with the index \texttt{i}
+		the follower believes applies to the append.
+	\item Respond to the client that the request was successful.
+	\item Concurrently with (2), send an \texttt{update} to the leader that
+		an append occurred on key \texttt{k} at index \texttt{i}.
+	\item The leader responds with \texttt{SUCCESS}.
+	\item The follower updates local disk to indicate that the append has
+		been committed at index \texttt{i} by the leader.
+\end{enumerate}
+
+The data for key \texttt{k} has simply been appended to, changing from $\{d_a,
+d_b, d_c, ..., d_{i-1}\}$ to $\{d_a, d_b, d_c, ..., d_{i-1}, d_i\}$, where $a < b <
+c < i$. Note that there may be data ``holes" between $a$, $b$, $c$, and $i$ not
+yet filled in by either a \texttt{get} or \texttt{sync}.
+
+\subsubsection{Concurrent Updates}
+When concurrent updates occur:
+
+% TODO: There's some ugly mixing of texttt and math notation here, particularly
+% around i'.
+\begin{enumerate}
+	\item The same as steps 1-3 above.
+	\item The leader responds with \texttt{NEEDS\_UPDATE}.
+	\item The follower updates local disk to indicate that the append has
+		been committed at index \texttt{i`} by the leader.
+	\item The follower sends a \texttt{sync} request to the follower that
+		appended the data at index \texttt{i`-1}, as indicated in the
+		leader's response.
+	\item The follower receives and stores on local disk the data it was
+		missing, including what the leader deemed to be the ``winner" of
+		index \texttt{i}.
+\end{enumerate}
+
+The data for key \texttt{k} in this case is an append and a reordering,
+changing from $\{d_a, d_b, d_c, ..., d_{i-1}\}$ to $\{d_a, d_b, d_c, ...,
+d_{i-1}, d_i, d_{i'}\}$, where $a < b < c < i$ and as above may have more holes
+to fill.
+
+% TODO: We don't yet implement the early return of data.
+It is possible for a chain of \texttt{sync} requests to form when more than 2
+followers append a key at the same time. If follower $a$ starts syncing with
+follower $b$, which is already waiting on follower $c$ to respond to a
+\texttt{sync}, $b$ will send what is knows to $a$. $a$ then retries to get
+missing data, at which point $b$ waits to respond until it has new data to send.
+
+\subsubsection{Follower Fault Tolerance}
+Both \texttt{update} and \texttt{sync} requests are retried in case of network
+failure. If a follower reboots during a \texttt{update}, it can inspect the disk
+at boot and see that it has appended data locally that has not been confirmed by
+the leader. If a follower reboots during a \texttt{sync}, it will have stale
+data until a \texttt{get} or \texttt{append} causes it to update. This keeps the
+system simple while retaining its consistency properties.
+
+\subsection{Leader}
+% TODO: Explain what happens when this is partitioned. Look at gfs paper.
+The leader is responsible for globally ordering writes for each key. Like GFS's
+master \cite{GFS}, it only stores metadata rather than the datastore itself.
+This decreases network utilization, as data itself is never sent.  Also, the
+burden on disks is lighter per update, increasing writes per second and the
+average lifetime of each disk. Like GFS, the simplicity of a single master
+simplifies our implementation and the rest of our design, both of which increase
+the overall stability of the system.
+
+% TODO: Add the nonce.
+The leader answers \texttt{update} requests from followers. These requests
+contain the key being appended to, the index at which the follower is trying
+to append, and a nonce to prevent erroneous double-appends. The leader
+authoritatively orders appends by keeping a map of key to current index. If a
+mapping exists from key $k$ to index $i$, an update specifying a write to index
+$i+1$ increments $i$ and returns \texttt{SUCCESS}. The leader writes all map
+updates to disk before responding.
+
+An \texttt{update} to $i' < i$ indicates that the sender is not synced to index
+$i$. In this case the leader increments its index and reassigns the append the
+index of $i+1$. It communicates this back to the follower, and tells it to
+sync with the follower that originated the append at index $i$.
+
+Along with the current index, the leader's map also contains the follower that
+originated the append at that index. This allows followers to be directed at the
+freshest information whether 
+
+\subsubsection{Broadcasting Updates}
+Although the system as described is eventually consistent, it may lead to
+unacceptably stale data. An updated value might get synced between followers
+$a$ and $b$, but follower $c$ would miss the update entirely. If a value is
+updated and 3 days later follower $c$ syncs via a \texttt{get} or
+\texttt{append}, $c$'s client will get 3-day-old data.
+
+To prevent excessive data staleness, the leader is able to broadcast updates to
+every follower. Depending on the workload, broadcasting every update may slow
+down the system and excessively consume bandwidth. Thus users can pass a flag
+specifying whether they want broadcasts for every update or periodic broadcasts.
+New broadcast behavior is easy to add, as it requires implementing a
+single-method Go interface that can make use of the same utility functions we
+used to write our broadcasters.
+
+\subsubsection{Leader Fault Tolerance}
+Because the leader writes all updates to disk, it tolerates crashes and reboots.
+For greater fault tolerance, it should write to multiple disks or a remote disk
+as well.
+
+The system continues to function when the leader is partitioned, but followers
+and thus clients do not receive updates from other followers. As long as the
+partition is eventually healed, the system will propagate information correctly
+and self-heal. If for some reason there is a permanent partition, it must be
+manually worked around by changing the cluster configuration (i.e. the set of
+nodes in the system).
 
 \subsection{Clients}
-% Describe the API and guarantees exposed to clients.
-We have very distinguished clientele.
+The append-only datastore presents clients with a simple interface consisting of
+the \texttt{get} and \texttt{append} API described above. The consistency model
+guarantees that clients:
 
-\section{Implementation}
+\begin{itemize}
+	\item Can read their own appends immediately.
+	\item Never see data reordered relatively.
+	\item Communicate only with a fast, nearby follower, and no other nodes
+		in the system.
+	\item Can always read and write, even when their follower is partitioned
+		from the rest of the system.
+\end{itemize}
+
+The sacrifices made are:
+
+\begin{itemize}
+	\item Consistency is eventual, not stronger.
+	\item We do not support random writes.
+	\item The system continues to work but may provide stale data in the
+		event of a leader failure.
+\end{itemize}
 
 \section{Evaluation}
-We tested using some super cool gcloud stuff.
+The system is written entirely in Go and can be run manually or distributed and
+run with Docker. Nodes communicate via GRPC.
+
+We ran tests with a cluster of Google Compute Engine virtual
+machines. The cluster consisted of:
+
+\begin{itemize}
+	\item A leader in Seoul, Korea.
+	\item A follower and client in Frankfurt, Germany.
+	\item A follower and client in Los Angeles, USA.
+	\item A follower and client in São Paulo, Brazil.
+\end{itemize}
 
 \subsection{Workload 1}
-Oh wow, we're so fast.
+We should probably read and write a lot.
 
 \subsection{Workload 2}
-Oh no, we're unexpectedly not that fast.
+Let's see what happens if we kill a follower.
 
 \section{Related Work}
-This is the most filler of all filler sections. Look, a reference! \cite{dynamo}
+Amazon's Dynamo \cite{Dynamo} supports always-writable semantics, high partition
+tolerance, and laser-focuses on low-latency operation. Unlike our system, Dynamo
+is a key-value store. It also exposes a great deal of complexity to developers,
+who have to tailor their use of Dynamo such that conflicts are resolvable and
+must manually implement conflict resolution in clients. Our system does not
+allow for conflicts.
+
+Google's GFS \cite{GFS} is also optimized for append-heavy workloads and uses a
+single master for simplicity and intelligent coordination. It supports random
+writes as well. However, it is explicitly optimized for non-latency-sensitive
+applications, and a single read can require multiple hops (the GFS master and
+chunkserver).
+
+% TODO: Make this better.
+LinkedIn's Kafka \cite{Kafka} also provides eventual delivery of large
+quantities of data (specifically logs), but contains a publish/subscription
+mechanism.
 
 \section{Future Work}
-Make it actually work.
+We could greatly increase throughput by providing a client library (rather than
+a raw GRPC interface) that is aware of the indeces or latest index it holds.
+This would enable followers to selectively return only the few missing pieces of
+data a client is missing rather than all the data.
+
+To increase fault tolerance, we have discussed making each follower and the
+leader their own small cluster of consensus nodes. This would greatly increase
+fault tolerance and, while it may complicate the system, would not complicate
+clients or the protocols via which nodes communicate.
+
+Lastly, there may be cases where followers fail or are partitioned from their
+nearby clients. In these cases, we would like to explore whether clients can
+fall back to another follower.
 
 \section{Conclusions}
-I'd just like everyone to pat themselves on the back here.
+We built a datastore to provide low latency and high availability for append-only
+data storage. While this work is tailed to a specific set of workloads, there
+are numerous applications that can benefit from this approach.
+
+Our system can be used to support distributed services such as distributed
+monitoring and chat applications with high performance. Importantly, it exposes
+a simple interface allowing for simple clients. We believe that this makes it a
+useful tool in building distributed and microservice systems.
 
 \bibliography{paper} 
 \bibliographystyle{ieeetr}

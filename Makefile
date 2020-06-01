@@ -63,6 +63,10 @@ paper/paper.pdf: paper/paper.tex paper/paper.bib
 		pdflatex paper && \
 		pdflatex --jobname=paper paper
 
+.PHONY: spell
+spell:
+	aspell --mode=tex --home-dir=. --personal=aspell.en.pws --repl=aspell.en.prepl check paper/paper.tex
+
 #
 # Docker rules
 #
