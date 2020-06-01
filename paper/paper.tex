@@ -96,9 +96,9 @@ following:
 % TODO: Add architecture diagram.
 Nodes in the append-only datastore are classified in a simple hierarchy as seen
 in TODO(add the architecture diagram). A single \textit{leader} directs multiple
-\textit{followers}. Clients connnect to and communicate with a nearby follower,
+\textit{followers}. Clients connect to and communicate with a nearby follower,
 likely running in the same datacenter, to minimize latency. Our design tolerates
-arbitary partitions between nodes and ensures an eventually consistent view of
+arbitrary partitions between nodes and ensures an eventually consistent view of
 data.
 
 Clients are exposed the following API by followers:
@@ -164,7 +164,7 @@ another follower indicated by the leader's response.
 Followers use the \texttt{sync} request to get data they are missing,
 effectively ``patching the holes" in their local datastore. This ensures the
 eventually consistent property of the system. \texttt{sync} requests also signal
-what data the sender has to the recipient, enabling the recipeint to also patch
+what data the sender has to the recipient, enabling the recipient to also patch
 holes in its local datastore.
 
 \subsubsection{Common Case}
@@ -176,18 +176,18 @@ follows:
 		the follower believes applies to the append.
 	\item Respond to the client that the request was successful.
 	\item Concurrently with (2), send an \texttt{update} to the leader that
-		an append occured on key \texttt{k} at index \texttt{i}.
+		an append occurred on key \texttt{k} at index \texttt{i}.
 	\item The leader responds with \texttt{SUCCESS}.
 	\item The follower updates local disk to indicate that the append has
-		been commited at index \texttt{i} by the leader.
+		been committed at index \texttt{i} by the leader.
 \end{enumerate}
 
-The data for key \texttt{k} has simply benn appended to, changing from $\{d_a,
+The data for key \texttt{k} has simply been appended to, changing from $\{d_a,
 d_b, d_c, ..., d_{i-1}\}$ to $\{d_a, d_b, d_c, ..., d_{i-1}, d_i\}$, where $a < b <
 c < i$. Note that there may be data ``holes" between $a$, $b$, $c$, and $i$ not
 yet filled in by either a \texttt{get} or \texttt{sync}.
 
-\subsubsection{Conccurent Updates}
+\subsubsection{Concurrent Updates}
 When concurrent updates occur:
 
 % TODO: There's some ugly mixing of texttt and math notation here, particularly
@@ -196,7 +196,7 @@ When concurrent updates occur:
 	\item The same as steps 1-3 above.
 	\item The leader responds with \texttt{NEEDS\_UPDATE}.
 	\item The follower updates local disk to indicate that the append has
-		been commited at index \texttt{i`} by the leader.
+		been committed at index \texttt{i`} by the leader.
 	\item The follower sends a \texttt{sync} request to the follower that
 		appended the data at index \texttt{i`-1}, as indicated in the
 		leader's response.
@@ -275,7 +275,7 @@ as well.
 
 The system continues to function when the leader is partitioned, but followers
 and thus clients do not receive updates from other followers. As long as the
-partition is eventually healed, the system will propgate information correctly
+partition is eventually healed, the system will propagate information correctly
 and self-heal. If for some reason there is a permanent partition, it must be
 manually worked around by changing the cluster configuration (i.e. the set of
 nodes in the system).
@@ -286,7 +286,7 @@ the \texttt{get} and \texttt{append} API described above. The consistency model
 guarantees that clients:
 
 \begin{itemize}
-	\item Can read their own appends immiedately.
+	\item Can read their own appends immediately.
 	\item Never see data reordered relatively.
 	\item Communicate only with a fast, nearby follower, and no other nodes
 		in the system.
@@ -344,12 +344,12 @@ mechanism.
 
 \section{Future Work}
 We could greatly increase throughput by providing a client library (rather than
-a raw GRPC interface) that is aware of the version or latest verions it holds.
+a raw GRPC interface) that is aware of the indeces or latest index it holds.
 This would enable followers to selectively return only the few missing pieces of
 data a client is missing rather than all the data.
 
 To increase fault tolerance, we have discussed making each follower and the
-leader their own small cluster of concensus nodes. This would greatly increase
+leader their own small cluster of consensus nodes. This would greatly increase
 fault tolerance and, while it may complicate the system, would not complicate
 clients or the protocols via which nodes communicate.
 
