@@ -60,7 +60,7 @@ over other eventually consistent systems:
 \end{enumerate}
 
 We also gain the advantages of some more traditionally eventually consistent
-systems, such as great partition tolerance \cite{dynamo}. Together, these
+systems, such as great partition tolerance \cite{Dynamo}. Together, these
 properties are highly desirable for many append-only applications. Consider the
 following:
 
@@ -124,8 +124,8 @@ The follower is our most complex component. Its responsibilities include:
 \begin{itemize}
 	\item Handing \texttt{append} and \texttt{get} requests from clients.
 	\item Ordering appends.
-	\item Updating the master about appended data.
-	\item Receiving the eventual, global ordering of data from the master
+	\item Updating the leader about appended data.
+	\item Receiving the eventual, global ordering of data from the leader
 		and imposing it on data.
 	\item Syncing with other followers to communicate updates and orderings.
 \end{itemize}
@@ -142,8 +142,9 @@ write. When a client appends data to key \texttt{k}, the follower writes that
 data - along with its index - to local disk before returning to the client. This
 ensures that data is not lost upon crashing and rebooting. For increased fault
 tolerance, the append should be written to multiple disks locally or to a remote
-disk. Note that throughout this section when we refer to updating local storage,
-the in-memory store is also updated immediately after data is written to disk.
+disk as well. Note that throughout this section when we refer to updating local
+storage, the in-memory store is also updated immediately after data is written
+to disk.
 
 As soon as the append is written to disk, the follower (concurrently with
 replying to the client) sends an \texttt{update} request to the leader
@@ -162,7 +163,9 @@ another follower indicated by the leader's response.
 
 Followers use the \texttt{sync} request to get data they are missing,
 effectively ``patching the holes" in their local datastore. This ensures the
-eventually consistent property of the system.
+eventually consistent property of the system. \texttt{sync} requests also signal
+what data the sender has to the recipient, enabling the recipeint to also patch
+holes in its local datastore.
 
 \subsubsection{Common Case}
 When updates do not overlap, the follower handles \texttt{append} requests as
@@ -223,42 +226,146 @@ data until a \texttt{get} or \texttt{append} causes it to update. This keeps the
 system simple while retaining its consistency properties.
 
 \subsection{Leader}
-% Explain what happens when this is partitioned.
-% Reference GFS and not transporting the data itself.
-It synchronizes stuff.
+% TODO: Explain what happens when this is partitioned. Look at gfs paper.
+The leader is responsible for globally ordering writes for each key. Like GFS's
+master \cite{GFS}, it only stores metadata rather than the datastore itself.
+This decreases network utilization, as data itself is never sent.  Also, the
+burden on disks is lighter per update, increasing writes per second and the
+average lifetime of each disk. Like GFS, the simplicity of a single master
+simplifies our implementation and the rest of our design, both of which increase
+the overall stability of the system.
+
+% TODO: Add the nonce.
+The leader answers \texttt{update} requests from followers. These requests
+contain the key being appended to, the index at which the follower is trying
+to append, and a nonce to prevent erroneous double-appends. The leader
+authoritatively orders appends by keeping a map of key to current index. If a
+mapping exists from key $k$ to index $i$, an update specifying a write to index
+$i+1$ increments $i$ and returns \texttt{SUCCESS}. The leader writes all map
+updates to disk before responding.
+
+An \texttt{update} to $i' < i$ indicates that the sender is not synced to index
+$i$. In this case the leader increments its index and reassigns the append the
+index of $i+1$. It communicates this back to the follower, and tells it to
+sync with the follower that originated the append at index $i$.
+
+Along with the current index, the leader's map also contains the follower that
+originated the append at that index. This allows followers to be directed at the
+freshest information whether 
+
+\subsubsection{Broadcasting Updates}
+Although the system as described is eventually consistent, it may lead to
+unacceptably stale data. An updated value might get synced between followers
+$a$ and $b$, but follower $c$ would miss the update entirely. If a value is
+updated and 3 days later follower $c$ syncs via a \texttt{get} or
+\texttt{append}, $c$'s client will get 3-day-old data.
+
+To prevent excessive data staleness, the leader is able to broadcast updates to
+every follower. Depending on the workload, broadcasting every update may slow
+down the system and excessively consume bandwidth. Thus users can pass a flag
+specifying whether they want broadcasts for every update or periodic broadcasts.
+New broadcast behavior is easy to add, as it requires implementing a
+single-method Go interface that can make use of the same utility functions we
+used to write our broadcasters.
+
+\subsubsection{Leader Fault Tolerance}
+Because the leader writes all updates to disk, it tolerates crashes and reboots.
+For greater fault tolerance, it should write to multiple disks or a remote disk
+as well.
+
+The system continues to function when the leader is partitioned, but followers
+and thus clients do not receive updates from other followers. As long as the
+partition is eventually healed, the system will propgate information correctly
+and self-heal. If for some reason there is a permanent partition, it must be
+manually worked around by changing the cluster configuration (i.e. the set of
+nodes in the system).
 
 \subsection{Clients}
-% Describe the API and guarantees exposed to clients.
-We have very distinguished clientele.
+The append-only datastore presents clients with a simple interface consisting of
+the \texttt{get} and \texttt{append} API described above. The consistency model
+guarantees that clients:
 
-\subsection{Corner Cases}
-% Multiple simultaneous writes from c1 and c2 to f1. How do we ensure that the
-% GL does not order w2 before w1?
-% What if the sync request can be partially satisfied. Do we not respond, or
-% respond partially and expect another sync request from the same follower?
+\begin{itemize}
+	\item Can read their own appends immiedately.
+	\item Never see data reordered relatively.
+	\item Communicate only with a fast, nearby follower, and no other nodes
+		in the system.
+	\item Can always read and write, even when their follower is partitioned
+		from the rest of the system.
+\end{itemize}
 
-\section{Implementation}
+The sacrifices made are:
+
+\begin{itemize}
+	\item Consistency is eventual, not stronger.
+	\item We do not support random writes.
+	\item The system continues to work but may provide stale data in the
+		event of a leader failure.
+\end{itemize}
 
 \section{Evaluation}
-We tested using some super cool gcloud stuff.
+The system is written entirely in Go and can be run manually or distributed and
+run with Docker. Nodes communicate via GRPC.
+
+We ran tests with a cluster of Google Compute Engine virtual
+machines. The cluster consisted of:
+
+\begin{itemize}
+	\item A leader in Seoul, Korea.
+	\item A follower and client in Frankfurt, Germany.
+	\item A follower and client in Los Angeles, USA.
+	\item A follower and client in São Paulo, Brazil.
+\end{itemize}
 
 \subsection{Workload 1}
-Oh wow, we're so fast.
+We should probably read and write a lot.
 
 \subsection{Workload 2}
-Oh no, we're unexpectedly not that fast.
+Let's see what happens if we kill a follower.
 
 \section{Related Work}
-% Talk about Kafka
-This is the most filler of all filler sections. Look, a reference! \cite{dynamo}
+Amazon's Dynamo \cite{Dynamo} supports always-writable semantics, high partition
+tolerance, and laser-focuses on low-latency operation. Unlike our system, Dynamo
+is a key-value store. It also exposes a great deal of complexity to developers,
+who have to tailor their use of Dynamo such that conflicts are resolvable and
+must manually implement conflict resolution in clients. Our system does not
+allow for conflicts.
+
+Google's GFS \cite{GFS} is also optimized for append-heavy workloads and uses a
+single master for simplicity and intelligent coordination. It supports random
+writes as well. However, it is explicitly optimized for non-latency-sensitive
+applications, and a single read can require multiple hops (the GFS master and
+chunkserver).
+
+% TODO: Make this better.
+LinkedIn's Kafka \cite{Kafka} also provides eventual delivery of large
+quantities of data (specifically logs), but contains a publish/subscription
+mechanism.
 
 \section{Future Work}
-% Use a raft group instead of a single node for each follower and GL.
-% Client fallback to other followers.
-Make it actually work.
+We could greatly increase throughput by providing a client library (rather than
+a raw GRPC interface) that is aware of the version or latest verions it holds.
+This would enable followers to selectively return only the few missing pieces of
+data a client is missing rather than all the data.
+
+To increase fault tolerance, we have discussed making each follower and the
+leader their own small cluster of concensus nodes. This would greatly increase
+fault tolerance and, while it may complicate the system, would not complicate
+clients or the protocols via which nodes communicate.
+
+Lastly, there may be cases where followers fail or are partitioned from their
+nearby clients. In these cases, we would like to explore whether clients can
+fall back to another follower.
 
 \section{Conclusions}
-I'd just like everyone to pat themselves on the back here.
+We built a datastore to provide low latency and high availability for append-only
+data storage. While this work is tailed to a specific set of workloads, there
+are numerous applications that can benefit from this approach.
+
+Our system can be used to support distributed services such as distributed
+monitoring and chat applications with high performance. Importantly, it exposes
+a simple interface allowing for simple clients. We believe that this makes it a
+useful tool in building distributed and microservice systems.
 
 \bibliography{paper} 
 \bibliographystyle{ieeetr}
