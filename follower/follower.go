@@ -123,24 +123,28 @@ func (f *follower) stop() {
 	f.conn.Close()
 }
 
+func (f *follower) initNewKey(key string) {
+	// A new key is received. Initialize a new entry in the store.
+	f.store[key] = &data{
+		updateReqChan:   make(chan *lpb.UpdateRequest, 100),
+		syncReqChan:     make(chan *syncRequest, 100),
+		syncReqQueue:    make([]*syncRequest, 0),
+		done:            make(chan bool),
+		buffer:          make([]string, 0),
+		versionToValues: make(map[int64][]string),
+	}
+	// Starts channels
+	go f.handleUpdate(key)
+	go f.handleSync(key)
+}
+
 func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, error) {
 	// Storing the data
 	log.Printf("Received Put request %v", req)
 
 	// Get the current version (or 0 if it's the first).
 	if _, ok := f.store[req.Key]; !ok {
-		// A new key is received. Initialize a store entry.
-		f.store[req.Key] = &data{
-			updateReqChan:   make(chan *lpb.UpdateRequest, 100),
-			syncReqChan:     make(chan *syncRequest, 100),
-			syncReqQueue:    make([]*syncRequest, 0),
-			done:            make(chan bool),
-			buffer:          make([]string, 0),
-			versionToValues: make(map[int64][]string),
-		}
-		// Starts channels
-		go f.handleUpdate(req.Key)
-		go f.handleSync(req.Key)
+		f.initNewKey(req.Key)
 	}
 
 	// newData := &value{val: req.Value, version: v}
@@ -370,7 +374,8 @@ func (f *follower) handleUpdate(key string) error {
 func (f *follower) Notify(ctx context.Context, req *pb.NotifyRequest) (*pb.NotifyResponse, error) {
 	log.Printf("Got a notification, %v", req)
 	if _, ok := f.store[req.Key]; !ok {
-		return nil, fmt.Errorf("key not found %v", req.Key)
+		// Got a new Key
+		f.initNewKey(req.Key)
 	}
 
 	data := f.store[req.Key]

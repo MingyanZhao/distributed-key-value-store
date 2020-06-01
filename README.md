@@ -31,7 +31,7 @@ To run in docker, skip to [running with docker](#running-with-docker).
 
 2. Binaries are in bin/.
 
-## Testing
+## Unit Testing
 Enter a foler, then run the test.
 ```bash
 $ cd follower
