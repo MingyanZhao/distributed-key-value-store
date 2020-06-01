@@ -39,8 +39,9 @@ monolithic applications do not have (or in the case of partitioning, are not
 solvable).
 
 Our \textit{append-only datastore} addresses latency and partitioning concerns
-for append-only workloads. By explicitly distinguishing between a
-\textit{master} node and \textit{follower} nodes, we gain several advantages
+for append-only workloads. It is designed to run as a service distributed
+globally across multiple data centers. By explicitly distinguishing between a
+\textit{leader} node and \textit{follower} nodes, we gain several advantages
 over other eventually consistent systems:
 
 \begin{enumerate}
@@ -92,20 +93,101 @@ following:
 \end{itemize}
 
 \section{Design}
-We made it go super fast.
+% TODO: Add architecture diagram.
+Nodes in the append-only datastore are classified in a simple hierarchy as seen
+in TODO(add the architecture diagram). A single \textit{leader} directs multiple
+\textit{followers}. Clients connnect to and communicate with a nearby follower,
+likely running in the same datacenter, to minimize latency. Our design tolerates
+arbitary partitions between nodes and ensures an eventually consistent view of
+data.
 
-\subsection{Leader}
-% Reference GFS and not transporting the data itself.
-It synchronizes stuff.
+Clients are exposed the following API by followers:
+\begin{itemize}
+	\item \texttt{append(key, data)} - Appends \texttt{data} to the existing
+		data for \texttt{key}. Guarantees that \texttt{data} appears
+		after any data that the client already read for \texttt{key}.
+	\item \texttt{get(key)} - Gets the data for \texttt{key}, expressed as a
+		list of indexed values. For example, the returned data will be
+		the result of writes 1, 3, and 5, expressed as $\{w_1, w_3,
+		w_5\}$. Subsequent \texttt{get} requests will always return
+		$w_1$, $w_3$, and $w_5$ in the same relative order, but other
+		writes may be prepended, appended, or interspersed.
+\end{itemize}
 
 \subsection{Follower}
+% Explain what happens when this is partitioned.
+% Explain read-your-own-writes consistency.
 % Be sure to discuss any synchronization that happens here, as the follower is
 % responsible for synchronizing its the writes to it.
-It also sorta synchronizes, but mostly it follows.
+The follower is our most complex component. Its responsibilities include:
+
+\begin{itemize}
+	\item Handing \texttt{append} and \texttt{get} requests from clients.
+	\item Ordering appends.
+	\item Updating the master about appended data.
+	\item Receiving the eventual, global ordering of data from the master
+		and imposing it on data.
+	\item Syncing with other followers to communicate updates and orderings.
+\end{itemize}
+
+% TODO: We don't actually do the update-on-get thing yet.
+Each follower stores the entire datastore locally in memory. When clients issue
+\texttt{get(k)} requests, these are served from the in-memory datastore to minimize
+response latency. It also causes the follower to ask the leader for the most
+up-to-date data for \texttt{k}, ensuring that frequently accessed data is kept
+relatively fresh.
+
+\texttt{append} requests are also fast, limited by the speed of a local disk
+write. When a client appends data to key \texttt{k}, the follower writes that
+data - along with its index - to local disk before returning to the client. This
+ensures that data is not lost upon crashing and rebooting. For increased fault
+tolerance, the append should be written to multiple disks locally or to a remote
+disk.
+
+As soon as the append is written to disk, the follower (concurrently with
+replying to the client) sends an \texttt{update} request to the leader
+containing the key being appended to and the index that the follower has
+assigned the appended data. The leader resolves and orders the append with any
+other concurrent appends from different followers (see next section), and
+responds.
+
+There are two types of responses. The first - and likely most common - case
+is a simple \texttt{SUCCESS} response. This indicates that the append committed
+successfully and the follower has up-to-date data for that key. The second is a
+\texttt{NEEDS\_UPDATE} response. This indicates that the data was appended, but
+another \texttt{update} preempted it. In this scenario, the follower changes the
+locally stored index of the appended data, and sends a \texttt{sync} request
+another follower indicated by the leader's response.
+
+Followers use the \texttt{sync} request to get data they are missing,
+effectively ``patching the holes" in their local datastore. This ensures the
+eventually consistent property of the system.
+
+In the common case, where updates do not overlap...
+
+When concurrent updates do occur...
+
+Both \texttt{update} and \texttt{sync} requests are retried in case of network
+failure. If a follower reboots during a \texttt{update}, it can inspect the disk
+at boot and see that it has appended data locally that has not been confirmed by
+the leader. If a follower reboots during a \texttt{sync}, it will have stale
+data until a \texttt{get} or \texttt{append} causes it to update. This keeps the
+system simple while retaining its consistency properties.
+
+\subsection{Leader}
+% Explain what happens when this is partitioned.
+% Reference GFS and not transporting the data itself.
+It synchronizes stuff.
 
 \subsection{Clients}
 % Describe the API and guarantees exposed to clients.
 We have very distinguished clientele.
+
+\subsection{Common Case}
+
+\subsection{Corner Cases}
+% Multiple simultaneous writes from c1 and c2 to f1. How do we ensure that the
+% GL does not order w2 before w1?
 
 \section{Implementation}
 
@@ -123,6 +205,8 @@ Oh no, we're unexpectedly not that fast.
 This is the most filler of all filler sections. Look, a reference! \cite{dynamo}
 
 \section{Future Work}
+% Use a raft group instead of a single node for each follower and GL.
+% Client fallback to other followers.
 Make it actually work.
 
 \section{Conclusions}
