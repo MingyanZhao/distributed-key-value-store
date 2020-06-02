@@ -426,7 +426,7 @@ func main() {
 	}
 
 	// Create and start the follower service.
-	lis, err := net.Listen("tcp", util.FormatServiceAddress(followerAddress))
+	lis, err := net.Listen("tcp", util.FormatBindAddress(followerAddress))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
