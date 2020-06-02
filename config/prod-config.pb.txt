@@ -1,11 +1,36 @@
 leader: {
-  address: "54.177.248.80"
+  address: "52.8.176.140"
   port: 9999
 }
+# us-west
 followers {
   key: "0"
   value: {
-    address: "54.177.248.80"
+    address: "52.8.176.140"
+    port: 10000
+  }
+}
+# us-east
+followers {
+  key: "1"
+  value: {
+    address: "54.157.114.176"
+    port: 10000
+  }
+}
+# eu-central
+followers {
+  key: "2"
+  value: {
+    address: "18.197.164.93"
+    port: 10000
+  }
+}
+# ap-east
+followers {
+  key: "3"
+  value: {
+    address: "18.166.33.215"
     port: 10000
   }
 }

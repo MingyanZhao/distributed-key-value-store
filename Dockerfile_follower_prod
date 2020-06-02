@@ -1,0 +1,6 @@
+FROM dkvs-base:latest
+ENV FOLLOWER_ID=0
+
+WORKDIR /dkvs
+
+CMD bin/follower --follower_id=${FOLLOWER_ID} --config_file=config/prod-config.pb.txt

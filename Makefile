@@ -72,15 +72,23 @@ spell:
 #
 
 .PHONY: docker
-docker: docker-leader docker-follower docker-client
+docker: docker-leader docker-leader-prod docker-follower docker-follower-prod docker-client
 
 .PHONY: docker-leader
 docker-leader: docker-base
 	docker build -f Dockerfile_leader -t dkvs-leader .
 
+.PHONY: docker-leader-prod
+docker-leader-prod: docker-base
+	docker build -f Dockerfile_leader_prod -t dkvs-leader-prod .
+
 .PHONY: docker-follower
 docker-follower: docker-base
 	docker build -f Dockerfile_follower -t dkvs-follower .
+
+.PHONY: docker-follower-prod
+docker-follower-prod: docker-base
+	docker build -f Dockerfile_follower_prod -t dkvs-follower-prod .
 
 .PHONY: docker-client
 docker-client: docker-base

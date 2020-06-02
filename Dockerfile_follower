@@ -2,4 +2,4 @@ FROM dkvs-base:latest
 
 WORKDIR /dkvs
 
-CMD ["bin/follower"]
+CMD ["bin/follower", "--follower_id=0"]
