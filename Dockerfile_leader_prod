@@ -2,4 +2,4 @@ FROM dkvs-base:latest
 
 WORKDIR /dkvs
 
-CMD ["bin/leader", "--config_file=config/prod-config.pb.txt"]
+CMD ["bin/leader", "--caster=simple", "--config_file=config/prod-config.pb.txt"]
