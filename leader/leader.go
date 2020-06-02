@@ -238,7 +238,7 @@ func main() {
 	configuration := config.ReadConfiguration()
 
 	log.Printf("Starting leader server and listening on address %v", configuration.Leader)
-	lis, err := net.Listen("tcp", util.FormatServiceAddress(configuration.Leader))
+	lis, err := net.Listen("tcp", util.FormatBindAddress(configuration.Leader))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}

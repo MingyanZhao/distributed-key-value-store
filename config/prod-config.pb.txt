@@ -1,0 +1,11 @@
+leader: {
+  address: "54.177.248.80"
+  port: 9999
+}
+followers {
+  key: "0"
+  value: {
+    address: "54.177.248.80"
+    port: 10000
+  }
+}
