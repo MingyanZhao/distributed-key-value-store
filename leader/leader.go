@@ -5,8 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"log"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -25,23 +27,27 @@ const (
 	casterFlagImmediate = "immediate"
 	casterFlagPeriodic  = "periodic"
 	// Simple braodcasting means that the leader send a Notification of all of the key-version info to all of followers
-	casterFlagSimple = "simple"
-	timeoutFlag      = "timeout"
-
-	keyVersionMapConcurrency = 32
+	casterFlagSimple         = "simple"
+	timeoutFlag              = "timeout"
+	logOutputFlag            = "logOutput"
+	keyVersionMapConcurrency = 1000
 )
 
 var (
-	caster  = flag.String(casterFlag, casterFlagImmediate, fmt.Sprintf("Which broadcaster to use: %q or %q", casterFlagImmediate, casterFlagPeriodic))
-	timeout = flag.Int(timeoutFlag, 5, "Timeout, in seconds, when connecting to each follower")
+	caster    = flag.String(casterFlag, casterFlagImmediate, fmt.Sprintf("Which broadcaster to use: %q or %q", casterFlagImmediate, casterFlagPeriodic))
+	timeout   = flag.Int(timeoutFlag, 5, "Timeout, in seconds, when connecting to each follower")
+	logOutput = flag.String(logOutputFlag, "log-only", "Path to the log file")
+	logger    *log.Logger
 )
 
 type keyvaluemap struct {
 	// Improve concurrency by sharding the locks.
 	// Avoid using sync.Map which is design for append-only and mostly-read cases
 	// https://github.com/golang/go/issues/20360
-	m    [keyVersionMapConcurrency]sync.RWMutex
-	data map[string]*versioninfo
+	m [keyVersionMapConcurrency]sync.RWMutex
+
+	mutex sync.Mutex
+	data  map[string]*versioninfo
 }
 
 func (kvm *keyvaluemap) lockKey(key string) {
@@ -121,13 +127,13 @@ func newLeader(configuration *cpb.Configuration) (*leader, error) {
 }
 
 func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateResponse, error) {
-	log.Printf("leader received update request %v", req)
-	l.keyVersionMap.lockKey(req.Key)
-	defer l.keyVersionMap.unlockKey(req.Key)
-
+	logger.Printf("leader received update request %v", req)
+	// l.keyVersionMap.lockKey(req.Key)
+	// defer l.keyVersionMap.unlockKey(req.Key)
+	l.keyVersionMap.mutex.Lock()
 	// Update the version info for the key.
 	if l.keyVersionMap.data[req.Key] == nil {
-		log.Printf("leader first seen this key, create a new entry, %v", req.Key)
+		logger.Printf("leader first seen this key, create a new entry, %v", req.Key)
 		l.keyVersionMap.data[req.Key] = &versioninfo{
 			version: 0,
 			fInfo: &followerInfo{
@@ -136,13 +142,7 @@ func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateR
 			},
 		}
 	} else {
-		log.Printf("leader has the key %v, version %v, follower info %v", req.Key, l.keyVersionMap.data[req.Key].version, *l.keyVersionMap.data[req.Key].fInfo)
-	}
-
-	// Set the result
-	result := pb.UpdateResult_SUCCESS
-	if l.keyVersionMap.data[req.Key].version > req.Version {
-		result = pb.UpdateResult_NEED_SYNC
+		logger.Printf("leader has the key %v, version %v, follower info %v", req.Key, l.keyVersionMap.data[req.Key].version, *l.keyVersionMap.data[req.Key].fInfo)
 	}
 
 	// Advance the version number for the key
@@ -150,12 +150,18 @@ func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateR
 
 	// Update the follower info. Swtich the current primary to the input follower info.
 	prePrimary := *l.keyVersionMap.data[req.Key].fInfo
-	log.Printf("preprimary is %v, id %v", prePrimary.followerAddr.Port, prePrimary.followerID)
+	logger.Printf("preprimary is %v, id %v", prePrimary.followerAddr.Port, prePrimary.followerID)
 
 	l.keyVersionMap.data[req.Key].fInfo.followerAddr = req.FollowerAddress
 	l.keyVersionMap.data[req.Key].fInfo.followerID = req.FollowerId
-	log.Printf("new preprimary is %v id %v", l.keyVersionMap.data[req.Key].fInfo.followerAddr.Port, l.keyVersionMap.data[req.Key].fInfo.followerID)
-	log.Printf("preprimary again is %v, id %v", prePrimary.followerAddr.Port, prePrimary.followerID)
+	logger.Printf("new preprimary is %v id %v", l.keyVersionMap.data[req.Key].fInfo.followerAddr.Port, l.keyVersionMap.data[req.Key].fInfo.followerID)
+	logger.Printf("preprimary again is %v, id %v", prePrimary.followerAddr.Port, prePrimary.followerID)
+
+	// Set the result
+	result := pb.UpdateResult_SUCCESS
+	if l.keyVersionMap.data[req.Key].version > req.Version && prePrimary.followerID != req.FollowerId {
+		result = pb.UpdateResult_NEED_SYNC
+	}
 
 	resp := &pb.UpdateResponse{
 		Version: l.keyVersionMap.data[req.Key].version,
@@ -170,6 +176,7 @@ func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateR
 			FollowerId: prePrimary.followerID,
 		},
 	}
+	l.keyVersionMap.mutex.Unlock()
 
 	// There's been a successful update. Notify followers.
 	// Not sure if we want to notify every follower in the update message.
@@ -179,7 +186,7 @@ func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateR
 	// TODO: Comment it out temporarily for testing.
 	// l.broadcaster.enqueue(req.Key, resp)
 
-	log.Printf("leader replying update response %v", resp)
+	logger.Printf("leader replying update response %v", resp)
 	return resp, nil
 }
 
@@ -197,17 +204,17 @@ func loadFollowers(config *cpb.Configuration) (map[string]fpb.FollowerClient, er
 }
 
 func (l *leader) broadcasting() {
-	log.Printf("Sending broadcasting request per 2 seconds")
+	logger.Printf("Sending broadcasting request per 2 seconds")
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	ctx := context.Background()
 	for {
 		select {
 		case <-l.done:
-			log.Println("done broadcasting")
+			logger.Println("done broadcasting")
 			return
 		case <-ticker.C:
-			log.Println("broadcast...")
+			logger.Println("broadcast...")
 			for id, fc := range l.followers {
 				for k, vi := range l.keyVersionMap.data {
 					if id == vi.fInfo.followerID {
@@ -237,15 +244,42 @@ func main() {
 
 	configuration := config.ReadConfiguration()
 
-	log.Printf("Starting leader server and listening on address %v", configuration.Leader)
+	switch *logOutput {
+	case "stdout-only":
+		logger = log.New(os.Stdout, "", log.LstdFlags)
+	case "both":
+		logFile, err := os.OpenFile("leader.log",
+			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Println(err)
+		}
+		defer logFile.Close()
+
+		logger = log.New(logFile, "", log.LstdFlags)
+
+		mw := io.MultiWriter(os.Stdout, logFile)
+		logger.SetOutput(mw)
+	default:
+		// Write to log file only
+		logFile, err := os.OpenFile("leader.log",
+			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Println(err)
+		}
+		defer logFile.Close()
+
+		logger = log.New(logFile, "", log.LstdFlags)
+	}
+
+	logger.Printf("Starting leader server and listening on address %v, followers are %v", configuration.Leader, configuration.Followers)
 	lis, err := net.Listen("tcp", util.FormatBindAddress(configuration.Leader))
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		logger.Fatalf("failed to listen: %v", err)
 	}
 	grpcServer := grpc.NewServer()
 	ldr, err := newLeader(configuration)
 	if err != nil {
-		log.Fatalf("failed to create leader: %v", err)
+		logger.Fatalf("failed to create leader: %v", err)
 	}
 
 	if *caster == casterFlagSimple {

@@ -4,8 +4,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -21,12 +23,15 @@ import (
 
 const followerIDFlag = "follower_id"
 const timeoutFlag = "timeout"
+const logOutputFlag = "logOutput"
 
 // Flags.
 var (
 	followerID            = flag.String(followerIDFlag, "", "The Follower's Unique ID")
 	timeout               = flag.Int(timeoutFlag, 5, "Timeout, in seconds, when connecting to the leader")
 	followerConnectionMap = make(map[string]pb.FollowerClient)
+	logOutput             = flag.String(logOutputFlag, "log-only", "Path to the log file")
+	logger                *log.Logger
 )
 
 // follower implements the Follower service.
@@ -46,7 +51,8 @@ type follower struct {
 	conn   *grpc.ClientConn
 
 	// TODO: store needs a mutex.
-	store map[string]*data
+	store      map[string]*data
+	storeMutex sync.Mutex
 }
 
 type data struct {
@@ -107,14 +113,15 @@ func newFollower(configuration *configpb.Configuration, followerID string, follo
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("Connected to leader at address %v", configuration.Leader)
+	logger.Printf("Connected to leader at address %v", configuration.Leader)
 	return &follower{
-		id:      followerID,
-		address: followerAddress,
-		store:   make(map[string]*data),
-		done:    make(chan bool),
-		conn:    conn,
-		leader:  lpb.NewLeaderClient(conn),
+		id:         followerID,
+		address:    followerAddress,
+		store:      make(map[string]*data),
+		storeMutex: sync.Mutex{},
+		done:       make(chan bool),
+		conn:       conn,
+		leader:     lpb.NewLeaderClient(conn),
 	}, nil
 }
 
@@ -140,29 +147,28 @@ func (f *follower) initNewKey(key string) {
 
 func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, error) {
 	// Storing the data
-	log.Printf("Received Put request %v", req)
-
+	logger.Printf("Received Put request %v", req)
+	f.storeMutex.Lock()
 	// Get the current version (or 0 if it's the first).
 	if _, ok := f.store[req.Key]; !ok {
 		f.initNewKey(req.Key)
 	}
 
-	// newData := &value{val: req.Value, version: v}
-
 	// The incoming values are put in the buffer and waiting to be udpated by the leader.
 	f.store[req.Key].buffer = append(f.store[req.Key].buffer, req.Value)
 	// f.store[req.Key].values = append(f.store[req.Key].values, newData)
-
 	res := fmt.Sprintf("key value pair recieved %v: %v", req.Key, req.Value)
-	log.Println(res)
+
+	go f.sendUpdate(req.Key)
+
+	f.storeMutex.Unlock()
+	logger.Println(res)
 
 	// TODO: write the data to the local disk
 	// Infomation that needs to be written:
 	// key, value, state
 	// The states are:
 	// received, updated, synced
-
-	go f.sendUpdate(req.Key)
 
 	// Reply to the clilent
 	return &pb.PutResponse{
@@ -172,20 +178,21 @@ func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse
 
 // TODO: A slightly better impl. May need more refactoring.
 func (f *follower) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
-	log.Printf("Received a Get request %v", req)
+	logger.Printf("Received a Get request %v", req)
 	var result []string
 	// First get the data from the store, which are all of the synced data.
 	if d, ok := f.store[req.Key]; ok {
-		for _, v := range d.versionToValues {
-			result = append(result, v...)
-
-			// then append all of the data that still waiting for update.
-
+		var keys []int64
+		for k := range d.versionToValues {
+			keys = append(keys, k)
 		}
+		var v []string
+		for _, k := range keys {
+			v = append(v, d.versionToValues[k]...)
+		}
+		result = append(result, v...)
 		result = append(result, f.store[req.Key].buffer...)
 	}
-
-	log.Printf("Get result is: [%v]", result)
 
 	return &pb.GetResponse{
 		Values: result,
@@ -193,7 +200,7 @@ func (f *follower) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse
 }
 
 func (f *follower) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncResponse, error) {
-	log.Printf("Received Sync request %v", req)
+	logger.Printf("Received Sync request %v", req)
 	if _, ok := f.store[req.Key]; !ok {
 		return nil, fmt.Errorf("sync message discarded because the key %v is not found", req.Key)
 	}
@@ -201,14 +208,16 @@ func (f *follower) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncRespo
 	askForVers := req.AskFor.Versions
 	incomingData := req.MyData
 	var outValues []*pb.Value
+	f.storeMutex.Lock()
+	f.store[req.Key].versionToValueLock.Lock()
 	mydata := f.store[req.Key].versionToValues
 	// The version numbers should all exist in the store.
 	// Only reply the versions that being asked for.
 	for _, v := range askForVers {
 		if _, ok := mydata[v]; !ok {
-			err := fmt.Errorf("reply to sync failed, missing version %v for key %v, request %v", v, req.Key, req)
-			log.Print(err)
-			return nil, err
+			err := fmt.Errorf("syncing no completed, missing version %v for key %v, request %v", v, req.Key, req)
+			logger.Print(err)
+			continue
 		}
 
 		outValues = append(outValues, &pb.Value{
@@ -221,9 +230,11 @@ func (f *follower) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncRespo
 	if incomingData != nil {
 		mydata[incomingData.Version] = incomingData.Values
 		// Incoming version should always be the latest version
-		log.Printf("current latest version is %v, incoming version is %v", f.store[req.Key].latestVersion, incomingData.Version)
+		logger.Printf("current latest version is %v, incoming version is %v", f.store[req.Key].latestVersion, incomingData.Version)
 		f.store[req.Key].latestVersion = incomingData.Version
 	}
+	f.store[req.Key].versionToValueLock.Unlock()
+	f.storeMutex.Unlock()
 
 	return &pb.SyncResponse{
 		Key:   req.Key,
@@ -234,15 +245,18 @@ func (f *follower) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncRespo
 func (f *follower) sendUpdate(key string) {
 	// TODO: Make this happen asynchronously.
 	// Sending update with leader
-	log.Println("update with global leader...")
-
+	logger.Println("update with global leader...")
+	f.storeMutex.Lock()
 	updateReq := &lpb.UpdateRequest{
 		Key:             key,
 		FollowerAddress: f.address,
 		Version:         f.store[key].latestVersion,
 		FollowerId:      *proto.String(f.id),
 	}
-	f.store[key].updateReqChan <- updateReq
+	go func() {
+		f.store[key].updateReqChan <- updateReq
+	}()
+	f.storeMutex.Unlock()
 }
 
 func (f *follower) sendSync(data *data, req *syncRequest) {
@@ -250,13 +264,17 @@ func (f *follower) sendSync(data *data, req *syncRequest) {
 }
 
 func (f *follower) handleSync(key string) error {
-	log.Printf("start sync handler for key %v", key)
+	logger.Printf("start sync handler for key %v", key)
 	syncReqChan := f.store[key].syncReqChan
 	ctx := context.Background()
 	for {
 		select {
 		case syncReqest := <-syncReqChan:
-			log.Printf("handling sync request id %v, addr %v", syncReqest.primaryID, *syncReqest.primaryAddr)
+			logger.Printf("handling sync request id %v, addr %v", syncReqest.primaryID, *syncReqest.primaryAddr)
+			if syncReqest.primaryID == f.id {
+				logger.Printf("the sync request is for the same follower, skip the request, sync request id %v, I am %v", syncReqest.primaryID, f.id)
+				continue
+			}
 			// Sending the sync request to the target follower one by one, then put into the syncResp channel.
 			// TODO: This is a blocking procedure, maybe able to change to a concurrent procedure
 			// Record the connection after dailing. Only dail on the first time.
@@ -264,7 +282,7 @@ func (f *follower) handleSync(key string) error {
 				newConn, err := dial(syncReqest.primaryAddr)
 				if err != nil {
 					// TODO: handle error
-					log.Printf("error: failed to connect the pre-primary %v, at address: %v", syncReqest.primaryID, syncReqest.primaryAddr)
+					logger.Printf("error: failed to connect the pre-primary %v, at address: %v", syncReqest.primaryID, syncReqest.primaryAddr)
 					continue
 				}
 				followerConnectionMap[syncReqest.primaryID] = pb.NewFollowerClient(newConn)
@@ -275,27 +293,55 @@ func (f *follower) handleSync(key string) error {
 			syncResp, err := prePrimary.Sync(ctx, syncReqest.req)
 			if err != nil {
 				// TODO: handle error
-				log.Printf("Sync rpc failed, %v", err)
+				logger.Printf("Sync rpc failed, %v", err)
 				continue
 			}
 
 			// syncResp received, update local store with incoming data
-			log.Printf("handling sync response, %v", syncResp)
+			logger.Printf("handling sync response, %v", syncResp)
 			newValues := syncResp.Value
+			f.storeMutex.Lock()
 			f.store[key].versionToValueLock.Lock()
 			myData := f.store[key].versionToValues
 			// Put each value list under its version.
+			askForVersionsLeft := make(map[int64]bool)
+			for _, v := range syncReqest.req.AskFor.Versions {
+				askForVersionsLeft[v] = true
+			}
 			for _, v := range newValues {
 				if d, ok := myData[v.Version]; ok {
 					err := fmt.Errorf("something went wrong, the version number should not be conflicting, key %v, existing data %v, incomming data %v", key, d, v)
-					log.Println(err)
+					logger.Println(err)
 					continue
 				}
+				delete(askForVersionsLeft, v.Version)
 				myData[v.Version] = v.Value
 			}
 			f.store[key].versionToValueLock.Unlock()
 
-			log.Printf("SyncResp done, %v", syncResp)
+			// Response may not have every version, retry what is left.
+			retryAskForVersions := make([]int64, 0)
+			for v := range askForVersionsLeft {
+				retryAskForVersions = append(retryAskForVersions, v)
+			}
+
+			syncReq := &pb.SyncRequest{
+				Key:    key,
+				AskFor: &pb.AskFor{Versions: retryAskForVersions},
+			}
+			s := &syncRequest{
+				req:         syncReq,
+				primaryID:   syncReqest.primaryID,
+				primaryAddr: syncReqest.primaryAddr,
+				backupID:    syncReqest.primaryID,
+				backupAddr:  syncReqest.backupAddr,
+			}
+			go func() {
+				f.store[key].syncReqChan <- s
+			}()
+			f.storeMutex.Unlock()
+
+			logger.Printf("SyncResp done, %v", syncResp)
 		}
 	}
 }
@@ -311,25 +357,26 @@ func askForVersions(globalVer, localVer int64) *pb.AskFor {
 }
 
 func (f *follower) handleUpdate(key string) error {
-	log.Printf("start update handler for key %v", key)
+	logger.Printf("start update handler for key %v", key)
 	ctx := context.Background()
 	done := f.store[key].done
 	updateReqChan := f.store[key].updateReqChan
 	for {
 		select {
 		case <-done:
-			log.Printf("key %v update channel closed", key)
+			logger.Printf("key %v update channel closed", key)
 			return nil
 		case updateReq := <-updateReqChan:
 			// there is an update request
-			log.Printf("sending update request %v", updateReq)
+			logger.Printf("sending update request %v", updateReq)
 			updateResp, err := f.leader.Update(ctx, updateReq)
 			if err != nil {
 				// TODO: handle the error properlly.
 				// One update message failed but still need to continue.
-				log.Printf("failed %v", err)
+				logger.Printf("failed %v", err)
+				continue
 			}
-			log.Printf("handling update response %v for key %v", updateResp, key)
+			logger.Printf("handling update response %v for key %v", updateResp, key)
 			data := f.store[key]
 			globalVer := updateResp.Version
 			localVer := data.latestVersion
@@ -361,18 +408,17 @@ func (f *follower) handleUpdate(key string) error {
 				go func() {
 					data.syncReqChan <- s
 				}()
-				log.Printf("sync request is in the channel")
+				logger.Printf("sync request is in the channel")
 			}
 			data.buffer = data.buffer[:0]
 			data.latestVersion = updateResp.Version
-			log.Printf("key %v needs a sync? %v", key, updateResp.Result)
+			logger.Printf("key %v needs a sync? %v", key, updateResp.Result)
 		}
 	}
 }
 
-// TODO: Handle.
 func (f *follower) Notify(ctx context.Context, req *pb.NotifyRequest) (*pb.NotifyResponse, error) {
-	log.Printf("Got a notification, %v", req)
+	logger.Printf("Got a notification, %v", req)
 	if _, ok := f.store[req.Key]; !ok {
 		// Got a new Key
 		f.initNewKey(req.Key)
@@ -400,7 +446,7 @@ func (f *follower) Notify(ctx context.Context, req *pb.NotifyRequest) (*pb.Notif
 		backupID:    req.Backup.FollowerId,
 		backupAddr:  req.Backup.Address,
 	}
-	log.Printf("sync request is in the channel, %v", s)
+	logger.Printf("sync request is in the channel, %v", s)
 	go func() {
 		data.syncReqChan <- s
 	}()
@@ -418,24 +464,55 @@ func (f *follower) Notify(ctx context.Context, req *pb.NotifyRequest) (*pb.Notif
 func main() {
 	flag.Parse()
 
+	if *followerID == "" {
+		log.Fatalf("did not specify a follower ID with the %q flag", followerIDFlag)
+	}
+
+	switch *logOutput {
+	case "stdout-only":
+		logger = log.New(os.Stdout, "", log.LstdFlags)
+	case "both":
+		logFile, err := os.OpenFile(fmt.Sprintf("f-%s.log", *followerID),
+			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Println(err)
+		}
+		defer logFile.Close()
+
+		logger = log.New(logFile, "", log.LstdFlags)
+
+		mw := io.MultiWriter(os.Stdout, logFile)
+		logger.SetOutput(mw)
+	default:
+		// Write to log file only
+		logFile, err := os.OpenFile(fmt.Sprintf("f-%s.log", *followerID),
+			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Println(err)
+		}
+		defer logFile.Close()
+
+		logger = log.New(logFile, "", log.LstdFlags)
+	}
+
 	// Get config and options.
 	configuration := config.ReadConfiguration()
 	followerAddress, ok := configuration.Followers[*proto.String(*followerID)]
 	if !ok {
-		log.Fatalf("did not specify a follower ID with the %q flag", followerIDFlag)
+		logger.Fatalf("did not specify a follower ID with the %q flag", followerIDFlag)
 	}
 
 	// Create and start the follower service.
 	lis, err := net.Listen("tcp", util.FormatBindAddress(followerAddress))
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		logger.Fatalf("failed to listen: %v", err)
 	}
 	f, err := newFollower(configuration, *followerID, followerAddress)
 	if err != nil {
-		log.Fatalf("failed to create new follower: %v", err)
+		logger.Fatalf("failed to create new follower: %v", err)
 	}
 
-	log.Printf("Starting follower server and listening on address %v", followerAddress)
+	logger.Printf("Starting follower server and listening on address %v", followerAddress)
 	grpcServer := grpc.NewServer()
 	pb.RegisterFollowerServer(grpcServer, f)
 	grpcServer.Serve(lis)
