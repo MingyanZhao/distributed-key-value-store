@@ -22,7 +22,7 @@ class Chatroom extends React.Component {
   componentDidMount() { 
     this.client = new FollowerClient("http://" + window.location.hostname + ":9090", null, null);
     this.refresh();
-    this.refreshTimer = setInterval(() => this.refresh(), 5000);
+    this.refreshTimer = setInterval(() => this.refresh(), 1000);
   }
 
   componentWillUnmount() {
@@ -76,7 +76,7 @@ class Chatroom extends React.Component {
     return(
       <div className={styles.main}>
         <div className={styles.heading}>
-          {process.env.REACT_APP_REGION}
+          {process.env.REACT_APP_REGION} [{this.props.room}]
         </div>
         <div ref={this.messagesEndRef} className={styles.chat}>
           <ul>
