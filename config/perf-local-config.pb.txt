@@ -1,0 +1,46 @@
+leader: {
+  address: "localhost"
+  port: 9999
+}
+followers {
+  key: "0"
+  value: {
+    address: "localhost"
+    port: 10000
+  }
+}
+followers {
+  key: "1"
+  value: {
+    address: "localhost"
+    port: 10001
+  }
+}
+followers {
+  key: "2"
+  value: {
+    address: "localhost"
+    port: 10002
+  }
+}
+followers {
+  key: "3"
+  value: {
+    address: "localhost"
+    port: 10003
+  }
+}
+followers {
+  key: "4"
+  value: {
+    address: "localhost"
+    port: 10004
+  }
+}
+followers {
+  key: "5"
+  value: {
+    address: "localhost"
+    port: 10005
+  }
+}
