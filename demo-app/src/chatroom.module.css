@@ -1,0 +1,38 @@
+.main {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+}
+
+.heading {
+  text-align: center;
+  font-size: x-large;
+  font-weight: bold;
+  color: blue;
+}
+
+.chat {
+  overflow-y: scroll;
+  height: 100%;
+}
+
+.messageItem:nth-child(odd) {
+  background-color: gray;
+}
+
+.messageItem:nth-child(even) {
+  background-color: white;
+}
+.control {
+  position: absolute;
+  bottom: 0px;
+  width: 100%;
+}
+
+.input {
+  width: 90%;
+}
+
+.send {
+  font-weight: bold;
+}
