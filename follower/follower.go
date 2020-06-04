@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -186,6 +187,9 @@ func (f *follower) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse
 		for k := range d.versionToValues {
 			keys = append(keys, k)
 		}
+
+		sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+
 		var v []string
 		for _, k := range keys {
 			v = append(v, d.versionToValues[k]...)

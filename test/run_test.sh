@@ -4,7 +4,7 @@ function run_test {
   # TODO: use the docker container to bring up the env
   test_spec=${1}
 
-  bin/leader &
+  bin/leader --caster=simple &
   LEADER_PID=$!
   bin/follower --follower_id=0 &
   FOLLOWER0_PID=$!
@@ -12,12 +12,12 @@ function run_test {
   FOLLOWER1_PID=$!
 
   bin/test_client --test_spec=${test_spec}
-  
+
   if [ $? -eq 0 ]
   then
     echo -e "\e[1m \e[32m Test ${test_spec} Succeeded\e[0m"
   else
-    echo -e "\e[1m \e[31m Test ${test_spec} Failed\e[0m"   
+    echo -e "\e[1m \e[31m Test ${test_spec} Failed\e[0m"
   fi
   kill $LEADER_PID
   kill $FOLLOWER0_PID
