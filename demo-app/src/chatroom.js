@@ -19,8 +19,8 @@ class Chatroom extends React.Component {
     this.handleSubmit = this.handleSubmit.bind(this);
   }
 
-  componentDidMount() {    
-    this.client = new FollowerClient("http://" + process.env.REACT_APP_IP + ":9090", null, null);
+  componentDidMount() { 
+    this.client = new FollowerClient("http://" + window.location.hostname + ":9090", null, null);
     this.refresh();
     this.refreshTimer = setInterval(() => this.refresh(), 5000);
   }
