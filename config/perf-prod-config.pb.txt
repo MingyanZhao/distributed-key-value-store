@@ -1,0 +1,46 @@
+leader: {
+  address: "34.70.122.53"
+  port: 9999
+}
+followers {
+  key: "0"
+  value: {
+    address: "34.70.122.53"
+    port: 10000
+  }
+}
+followers {
+  key: "1"
+  value: {
+    address: "34.84.220.194"
+    port: 10001
+  }
+}
+followers {
+  key: "2"
+  value: {
+    address: "34.105.87.0"
+    port: 10002
+  }
+}
+followers {
+  key: "3"
+  value: {
+    address: "35.236.14.39"
+    port: 10003
+  }
+}
+followers {
+  key: "4"
+  value: {
+    address: "35.236.14.39"
+    port: 10004
+  }
+}
+followers {
+  key: "5"
+  value: {
+    address: "34.105.253.181"
+    port: 10005
+  }
+}
