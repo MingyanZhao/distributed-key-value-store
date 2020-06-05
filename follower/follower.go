@@ -188,7 +188,7 @@ func (f *follower) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse
 			versions = append(versions, v)
 		}
 
-		sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+		sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
 
 		var v []string
 		for _, k := range versions {
