@@ -30,6 +30,7 @@ const logOutputFlag = "logOutput"
 var (
 	followerID            = flag.String(followerIDFlag, "", "The Follower's Unique ID")
 	timeout               = flag.Int(timeoutFlag, 5, "Timeout, in seconds, when connecting to the leader")
+	connMapMutex          = sync.Mutex{}
 	followerConnectionMap = make(map[string]pb.FollowerClient)
 	logOutput             = flag.String(logOutputFlag, "log-only", "Path to the log file")
 	logger                *log.Logger
@@ -148,7 +149,6 @@ func (f *follower) initNewKey(key string) {
 
 func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, error) {
 	// Storing the data
-	logger.Printf("Received Put request %v", req)
 	f.storeMutex.Lock()
 	// Get the current version (or 0 if it's the first).
 	if _, ok := f.store[req.Key]; !ok {
@@ -162,8 +162,8 @@ func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse
 
 	go f.sendUpdate(req.Key)
 
+	logger.Printf("Received Put request %v, key %v is on version %v now", req, req.Key, f.store[req.Key].latestVersion)
 	f.storeMutex.Unlock()
-	logger.Println(res)
 
 	// TODO: write the data to the local disk
 	// Infomation that needs to be written:
@@ -183,15 +183,15 @@ func (f *follower) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse
 	var result []string
 	// First get the data from the store, which are all of the synced data.
 	if d, ok := f.store[req.Key]; ok {
-		var keys []int64
-		for k := range d.versionToValues {
-			keys = append(keys, k)
+		var versions []int64
+		for v := range d.versionToValues {
+			versions = append(versions, v)
 		}
 
 		sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
 
 		var v []string
-		for _, k := range keys {
+		for _, k := range versions {
 			v = append(v, d.versionToValues[k]...)
 		}
 		result = append(result, v...)
@@ -212,6 +212,7 @@ func (f *follower) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncRespo
 	askForVers := req.AskFor.Versions
 	incomingData := req.MyData
 	var outValues []*pb.Value
+
 	f.storeMutex.Lock()
 	f.store[req.Key].versionToValueLock.Lock()
 	mydata := f.store[req.Key].versionToValues
@@ -219,7 +220,7 @@ func (f *follower) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncRespo
 	// Only reply the versions that being asked for.
 	for _, v := range askForVers {
 		if _, ok := mydata[v]; !ok {
-			err := fmt.Errorf("syncing no completed, missing version %v for key %v, request %v", v, req.Key, req)
+			err := fmt.Errorf("syncing not completed, missing version %v for key %v, request %v", v, req.Key, req)
 			logger.Print(err)
 			continue
 		}
@@ -237,6 +238,7 @@ func (f *follower) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncRespo
 		logger.Printf("current latest version is %v, incoming version is %v", f.store[req.Key].latestVersion, incomingData.Version)
 		f.store[req.Key].latestVersion = incomingData.Version
 	}
+
 	f.store[req.Key].versionToValueLock.Unlock()
 	f.storeMutex.Unlock()
 
@@ -249,7 +251,6 @@ func (f *follower) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncRespo
 func (f *follower) sendUpdate(key string) {
 	// TODO: Make this happen asynchronously.
 	// Sending update with leader
-	logger.Println("update with global leader...")
 	f.storeMutex.Lock()
 	updateReq := &lpb.UpdateRequest{
 		Key:             key,
@@ -269,19 +270,38 @@ func (f *follower) sendSync(data *data, req *syncRequest) {
 
 func (f *follower) handleSync(key string) error {
 	logger.Printf("start sync handler for key %v", key)
-	syncReqChan := f.store[key].syncReqChan
 	ctx := context.Background()
 	for {
 		select {
-		case syncReqest := <-syncReqChan:
-			logger.Printf("handling sync request id %v, addr %v", syncReqest.primaryID, *syncReqest.primaryAddr)
+		case syncReqest := <-f.store[key].syncReqChan:
+			// logger.Printf("handling sync request id %v, addr %v", syncReqest.primaryID, *syncReqest.primaryAddr)
 			if syncReqest.primaryID == f.id {
 				logger.Printf("the sync request is for the same follower, skip the request, sync request id %v, I am %v", syncReqest.primaryID, f.id)
 				continue
 			}
+
+			// Update the askfor versions, the versions may already be synced by a previous request.
+			f.storeMutex.Lock()
+			f.store[syncReqest.req.Key].versionToValueLock.Lock()
+			askfor := syncReqest.req.AskFor.Versions
+			realAskFor := make([]int64, 0)
+			for _, v := range askfor {
+				if _, ok := f.store[syncReqest.req.Key].versionToValues[v]; !ok {
+					realAskFor = append(realAskFor, v)
+				}
+			}
+			f.store[syncReqest.req.Key].versionToValueLock.Unlock()
+			f.storeMutex.Unlock()
+
+			if len(realAskFor) == 0 {
+				continue
+			}
+			syncReqest.req.AskFor.Versions = realAskFor
+
 			// Sending the sync request to the target follower one by one, then put into the syncResp channel.
 			// TODO: This is a blocking procedure, maybe able to change to a concurrent procedure
 			// Record the connection after dailing. Only dail on the first time.
+			connMapMutex.Lock()
 			if _, ok := followerConnectionMap[syncReqest.primaryID]; !ok {
 				newConn, err := dial(syncReqest.primaryAddr)
 				if err != nil {
@@ -292,7 +312,8 @@ func (f *follower) handleSync(key string) error {
 				followerConnectionMap[syncReqest.primaryID] = pb.NewFollowerClient(newConn)
 			}
 			prePrimary := followerConnectionMap[syncReqest.primaryID]
-
+			connMapMutex.Unlock()
+			logger.Printf("calling Sync askfor versions %v for key %v", syncReqest.req.AskFor.Versions, key)
 			// Call sync on the target follower
 			syncResp, err := prePrimary.Sync(ctx, syncReqest.req)
 			if err != nil {
@@ -314,7 +335,7 @@ func (f *follower) handleSync(key string) error {
 			}
 			for _, v := range newValues {
 				if d, ok := myData[v.Version]; ok {
-					err := fmt.Errorf("something went wrong, the version number should not be conflicting, key %v, existing data %v, incomming data %v", key, d, v)
+					err := fmt.Errorf("version number already exist, key %v, existing data %v, incomming data %v", key, d, v)
 					logger.Println(err)
 					continue
 				}
@@ -324,28 +345,30 @@ func (f *follower) handleSync(key string) error {
 			f.store[key].versionToValueLock.Unlock()
 
 			// Response may not have every version, retry what is left.
-			retryAskForVersions := make([]int64, 0)
-			for v := range askForVersionsLeft {
-				retryAskForVersions = append(retryAskForVersions, v)
-			}
+			if len(askForVersionsLeft) > 0 {
+				retryAskForVersions := make([]int64, 0)
+				for v := range askForVersionsLeft {
+					retryAskForVersions = append(retryAskForVersions, v)
+				}
 
-			syncReq := &pb.SyncRequest{
-				Key:    key,
-				AskFor: &pb.AskFor{Versions: retryAskForVersions},
+				syncReq := &pb.SyncRequest{
+					Key:    key,
+					AskFor: &pb.AskFor{Versions: retryAskForVersions},
+				}
+				s := &syncRequest{
+					req:         syncReq,
+					primaryID:   syncReqest.primaryID,
+					primaryAddr: syncReqest.primaryAddr,
+					backupID:    syncReqest.primaryID,
+					backupAddr:  syncReqest.backupAddr,
+				}
+				go func() {
+					f.store[key].syncReqChan <- s
+				}()
 			}
-			s := &syncRequest{
-				req:         syncReq,
-				primaryID:   syncReqest.primaryID,
-				primaryAddr: syncReqest.primaryAddr,
-				backupID:    syncReqest.primaryID,
-				backupAddr:  syncReqest.backupAddr,
-			}
-			go func() {
-				f.store[key].syncReqChan <- s
-			}()
 			f.storeMutex.Unlock()
 
-			logger.Printf("SyncResp done, %v", syncResp)
+			// logger.Printf("SyncResp done, %v", syncResp)
 		}
 	}
 }
@@ -363,16 +386,14 @@ func askForVersions(globalVer, localVer int64) *pb.AskFor {
 func (f *follower) handleUpdate(key string) error {
 	logger.Printf("start update handler for key %v", key)
 	ctx := context.Background()
-	done := f.store[key].done
-	updateReqChan := f.store[key].updateReqChan
 	for {
 		select {
-		case <-done:
+		case <-f.store[key].done:
 			logger.Printf("key %v update channel closed", key)
 			return nil
-		case updateReq := <-updateReqChan:
+		case updateReq := <-f.store[key].updateReqChan:
 			// there is an update request
-			logger.Printf("sending update request %v", updateReq)
+			// logger.Printf("sending update request %v", updateReq)
 			updateResp, err := f.leader.Update(ctx, updateReq)
 			if err != nil {
 				// TODO: handle the error properlly.
@@ -409,20 +430,21 @@ func (f *follower) handleUpdate(key string) error {
 					backupID:    updateResp.PreBackup.FollowerId,
 					backupAddr:  updateResp.PreBackup.Address,
 				}
+				logger.Printf("key %v needs a sync request %v, with follower %v", key, s.req, s.primaryID)
 				go func() {
 					data.syncReqChan <- s
 				}()
-				logger.Printf("sync request is in the channel")
+				// logger.Printf("sync request is in the channel")
 			}
 			data.buffer = data.buffer[:0]
+			logger.Printf("key %v receives an update response %v, version was %d, will updated to %d", key, updateResp, data.latestVersion, updateResp.Version)
 			data.latestVersion = updateResp.Version
-			logger.Printf("key %v needs a sync? %v", key, updateResp.Result)
 		}
 	}
 }
 
 func (f *follower) Notify(ctx context.Context, req *pb.NotifyRequest) (*pb.NotifyResponse, error) {
-	logger.Printf("Got a notification, %v", req)
+	// logger.Printf("Got a notification, %v", req)
 	if _, ok := f.store[req.Key]; !ok {
 		// Got a new Key
 		f.initNewKey(req.Key)
@@ -450,7 +472,7 @@ func (f *follower) Notify(ctx context.Context, req *pb.NotifyRequest) (*pb.Notif
 		backupID:    req.Backup.FollowerId,
 		backupAddr:  req.Backup.Address,
 	}
-	logger.Printf("sync request is in the channel, %v", s)
+	logger.Printf("created sync request %v for the Notification %v", s, req)
 	go func() {
 		data.syncReqChan <- s
 	}()
@@ -477,7 +499,7 @@ func main() {
 		logger = log.New(os.Stdout, "", log.LstdFlags)
 	case "both":
 		logFile, err := os.OpenFile(fmt.Sprintf("f-%s.log", *followerID),
-			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 		if err != nil {
 			log.Println(err)
 		}
@@ -490,7 +512,7 @@ func main() {
 	default:
 		// Write to log file only
 		logFile, err := os.OpenFile(fmt.Sprintf("f-%s.log", *followerID),
-			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 		if err != nil {
 			log.Println(err)
 		}

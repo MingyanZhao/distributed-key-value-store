@@ -4,9 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
+	"os"
 	"sort"
 	"sync"
 	"time"
@@ -23,6 +25,7 @@ import (
 const followerIDFlag = "follower_id"
 const timeoutFlag = "timeout"
 const modeFlag = "mode"
+const logOutputFlag = "logOutput"
 
 var (
 	followerID = flag.String(followerIDFlag, "", "The Follower to talk to")
@@ -30,12 +33,15 @@ var (
 	timeout    = flag.Int(timeoutFlag, 5, "Timeout, in seconds, when connecting to the follower")
 	testTime   = flag.Int("testtime", 30, "How long to send updates for, in seconds")
 
-	threadCount  = flag.Int("threadcount", 1, "The number of threads that sends a number of requests")
+	threadCount  = flag.Int("threadcount", 2, "The number of threads that sends a number of requests")
 	requestCount = flag.Int("requestcount", 10, "The number of requests to send")
 	testKeys     = []string{"key-0", "key-1", "key-2", "key-3", "key-4", "key-5", "key-6", "key-7", "key-8", "key-9"}
 	// testKeys   = []string{"key-0"}
 	valueCount = 0
 	countLock  = sync.Mutex{}
+
+	logOutput = flag.String(logOutputFlag, "log-only", "Path to the log file")
+	logger    *log.Logger
 )
 
 // sentRequest
@@ -50,12 +56,12 @@ func sendRequest(ctx context.Context, c flpb.FollowerClient, t time.Time) {
 	valueCount++
 	countLock.Unlock()
 
-	log.Printf("sending request %v", req)
+	logger.Printf("sending request %v", req)
 	resp, err := c.Put(ctx, req)
 	if err != nil {
-		log.Fatalf("%v.Put(_) = _, %v: ", c, err)
+		logger.Fatalf("%v.Put(_) = _, %v: ", c, err)
 	}
-	log.Println(resp)
+	logger.Println(resp)
 }
 
 // sentRequest
@@ -67,17 +73,17 @@ func sendConcurRequest(ctx context.Context, c flpb.FollowerClient, t time.Time) 
 		Value: fmt.Sprintf("client-%v-%v-value-%s", *followerID, k, uuid.New()),
 	}
 
-	log.Printf("sending request %v", req)
-	resp, err := c.Put(ctx, req)
+	logger.Printf("sending request %v", req)
+	_, err := c.Put(ctx, req)
 	if err != nil {
-		log.Fatalf("%v.Put(_) = _, %v: ", c, err)
+		logger.Fatalf("%v.Put(_) = _, %v: ", c, err)
 	}
-	log.Println(resp)
+	// logger.Printf("client(follower id) %v, got response %v", *followerID, resp)
 }
 
 // sentRequests puts new key-value pair
 func sentRequests(client flpb.FollowerClient) {
-	log.Printf("Sending request per 1 seconds")
+	logger.Printf("Sending request per 1 seconds")
 	ctx := context.Background()
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -85,7 +91,7 @@ func sentRequests(client flpb.FollowerClient) {
 	for {
 		select {
 		case <-done:
-			log.Println("done sending requests")
+			logger.Println("done sending requests")
 			return
 		case t := <-ticker.C:
 			sendRequest(ctx, client, t)
@@ -96,7 +102,8 @@ func sentRequests(client flpb.FollowerClient) {
 func getData(c flpb.FollowerClient) string {
 	ctx := context.Background()
 	// var result = make([][]string, 10)
-	log.Printf("********************************")
+	logger.Printf("********************************")
+	var count int
 	var result string
 	for _, k := range testKeys {
 		req := &flpb.GetRequest{
@@ -104,14 +111,15 @@ func getData(c flpb.FollowerClient) string {
 		}
 		resp, err := c.Get(ctx, req)
 		if err != nil {
-			log.Fatalf("%v.Get(_) = _, %v: ", c, err)
+			logger.Fatalf("%v.Get(_) = _, %v: ", c, err)
 		}
+		count += len(resp.Values)
 		sort.Strings(resp.Values)
-		// result[i] = resp.Values
 		r := fmt.Sprintf("%v: [%v]\n\n\n", k, resp.Values)
 		result += r
 	}
-	log.Printf("********************************")
+	logger.Printf("get %d values in total", count)
+	logger.Printf("********************************")
 	return result
 }
 
@@ -120,33 +128,48 @@ func runClient(client flpb.FollowerClient) {
 	sentRequests(client)
 
 	// Get the data
-	log.Printf("Get data first time")
+	logger.Printf("Get data first time")
 	getData(client)
 
 	// Wait for other test clients to finish
 	time.Sleep(10 * time.Second)
 
 	// Get the data
-	log.Printf("Get data second time")
+	logger.Printf("Get data second time")
 	getData(client)
 }
 
-func sendRequestsConcurrently(ctx context.Context, c flpb.FollowerClient) {
-	for i := 0; i < *requestCount; i++ {
-		go sendConcurRequest(ctx, c, time.Now())
+func sendRequestsConcurrently(ctx context.Context, c flpb.FollowerClient, t int) {
+	logger.Printf("this is routine %d", t)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	done := make(chan bool)
+	for {
+		select {
+		case <-done:
+			logger.Println("done perf test sending requests")
+			return
+		case <-ticker.C:
+			go sendConcurRequest(ctx, c, time.Now())
+			*requestCount--
+			if *requestCount == 0 {
+				logger.Println("done! ")
+				done <- true
+			}
+		}
 	}
 }
 
 func perfTest(c flpb.FollowerClient) {
 	ctx := context.Background()
 	for i := 0; i < *threadCount; i++ {
-		go sendRequestsConcurrently(ctx, c)
+		go sendRequestsConcurrently(ctx, c, i)
 	}
 
 	// Wait for other test clients to finish
-	time.Sleep(10 * time.Second)
+	time.Sleep(time.Duration(*testTime) * time.Second)
 
-	log.Printf("Get data second time")
+	logger.Printf("Get data second time")
 	result := getData(c)
 	fileName := fmt.Sprintf("./perfresult-follower-%s", *followerID)
 	err := ioutil.WriteFile(fileName, []byte(result), 0644)
@@ -156,32 +179,56 @@ func perfTest(c flpb.FollowerClient) {
 }
 
 func main() {
-	log.Printf("Start client connecting to follower - 1")
 	flag.Parse()
-	log.Printf("Start client connecting to follower - 2")
 	configuration := config.ReadConfiguration()
-	log.Printf("Start client connecting to follower - 3")
+
+	switch *logOutput {
+	case "stdout-only":
+		logger = log.New(os.Stdout, "", log.LstdFlags)
+	case "both":
+		logFile, err := os.OpenFile(fmt.Sprintf("c-%s.log", *followerID),
+			os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+		if err != nil {
+			log.Println(err)
+		}
+		defer logFile.Close()
+
+		logger = log.New(logFile, "", log.LstdFlags)
+
+		mw := io.MultiWriter(os.Stdout, logFile)
+		logger.SetOutput(mw)
+	default:
+		// Write to log file only
+		logFile, err := os.OpenFile(fmt.Sprintf("c-%s.log", *followerID),
+			os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+		if err != nil {
+			log.Println(err)
+		}
+		defer logFile.Close()
+
+		logger = log.New(logFile, "", log.LstdFlags)
+	}
 
 	// There must be a follower specified via flag, and that follower must be in
 	// the config.
 	followerAddress, ok := configuration.Followers[*proto.String(*followerID)]
 	if !ok {
-		log.Fatalf("did not specify a follower ID with the %q flag", followerIDFlag)
+		logger.Fatalf("did not specify a follower ID with the %q flag", followerIDFlag)
 	}
 	// Connect to the follower.
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
 	opts = append(opts, grpc.WithBlock())
 	opts = append(opts, grpc.WithTimeout(time.Duration(*timeout)*time.Second))
-	log.Printf("Start client connecting to follower %q at address %q", *followerID, followerAddress)
+	logger.Printf("Start client connecting to follower %q at address %q", *followerID, followerAddress)
 	// Only supporting localhost for testing.
 	conn, err := grpc.Dial(util.FormatServiceAddress(followerAddress), opts...)
 	if err != nil {
-		log.Fatalf("fail to dial: %v", err)
+		logger.Fatalf("fail to dial: %v", err)
 	}
 	defer conn.Close()
 	client := flpb.NewFollowerClient(conn)
-	log.Printf("client mode is %v", *mode)
+	logger.Printf("client mode is %v", *mode)
 	switch *mode {
 	case "normal":
 		runClient(client)

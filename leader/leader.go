@@ -150,15 +150,13 @@ func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateR
 
 	// Update the follower info. Swtich the current primary to the input follower info.
 	prePrimary := *l.keyVersionMap.data[req.Key].fInfo
-	logger.Printf("preprimary is %v, id %v", prePrimary.followerAddr.Port, prePrimary.followerID)
 
 	l.keyVersionMap.data[req.Key].fInfo.followerAddr = req.FollowerAddress
 	l.keyVersionMap.data[req.Key].fInfo.followerID = req.FollowerId
-	logger.Printf("new preprimary is %v id %v", l.keyVersionMap.data[req.Key].fInfo.followerAddr.Port, l.keyVersionMap.data[req.Key].fInfo.followerID)
-	logger.Printf("preprimary again is %v, id %v", prePrimary.followerAddr.Port, prePrimary.followerID)
 
 	// Set the result
 	result := pb.UpdateResult_SUCCESS
+	logger.Printf("key %v, leader's version is %d, input follower's version is %d", req.Key, l.keyVersionMap.data[req.Key].version, req.Version)
 	if l.keyVersionMap.data[req.Key].version > req.Version && prePrimary.followerID != req.FollowerId {
 		result = pb.UpdateResult_NEED_SYNC
 	}
@@ -249,7 +247,7 @@ func main() {
 		logger = log.New(os.Stdout, "", log.LstdFlags)
 	case "both":
 		logFile, err := os.OpenFile("leader.log",
-			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 		if err != nil {
 			log.Println(err)
 		}
@@ -262,7 +260,7 @@ func main() {
 	default:
 		// Write to log file only
 		logFile, err := os.OpenFile("leader.log",
-			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 		if err != nil {
 			log.Println(err)
 		}
