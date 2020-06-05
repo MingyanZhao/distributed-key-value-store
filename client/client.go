@@ -40,6 +40,9 @@ var (
 	valueCount = 0
 	countLock  = sync.Mutex{}
 
+	elapsedLock = sync.Mutex{}
+	sendElapsed = int64(0)
+
 	logOutput = flag.String(logOutputFlag, "log-only", "Path to the log file")
 	logger    *log.Logger
 )
@@ -74,7 +77,12 @@ func sendConcurRequest(ctx context.Context, c flpb.FollowerClient, t time.Time) 
 	}
 
 	logger.Printf("sending request %v", req)
+	start := time.Now()
 	_, err := c.Put(ctx, req)
+	elapsed := time.Since(start)
+	elapsedLock.Lock()
+	sendElapsed += elapsed.Microseconds()
+	elapsedLock.Unlock()
 	if err != nil {
 		logger.Fatalf("%v.Put(_) = _, %v: ", c, err)
 	}
@@ -105,10 +113,13 @@ func getData(c flpb.FollowerClient) string {
 	logger.Printf("********************************")
 	var count int
 	var result string
+	start := time.Now()
+
 	for _, k := range testKeys {
 		req := &flpb.GetRequest{
 			Key: k,
 		}
+
 		resp, err := c.Get(ctx, req)
 		if err != nil {
 			logger.Fatalf("%v.Get(_) = _, %v: ", c, err)
@@ -118,7 +129,9 @@ func getData(c flpb.FollowerClient) string {
 		r := fmt.Sprintf("%v: [%v]\n\n\n", k, resp.Values)
 		result += r
 	}
-	logger.Printf("get %d values in total", count)
+	elapsed := time.Since(start)
+	perRequest := float64(elapsed.Microseconds()) / float64(len(testKeys))
+	logger.Printf("get %d values in total, elapsed %v, per request %v microseconds", count, elapsed, perRequest)
 	logger.Printf("********************************")
 	return result
 }
@@ -144,6 +157,7 @@ func sendRequestsConcurrently(ctx context.Context, c flpb.FollowerClient, t int)
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	done := make(chan bool)
+	count := *requestCount
 	for {
 		select {
 		case <-done:
@@ -151,9 +165,8 @@ func sendRequestsConcurrently(ctx context.Context, c flpb.FollowerClient, t int)
 			return
 		case <-ticker.C:
 			go sendConcurRequest(ctx, c, time.Now())
-			*requestCount--
-			if *requestCount == 0 {
-				logger.Println("done! ")
+			count--
+			if count == 0 {
 				done <- true
 			}
 		}
@@ -169,7 +182,11 @@ func perfTest(c flpb.FollowerClient) {
 	// Wait for other test clients to finish
 	time.Sleep(time.Duration(*testTime) * time.Second)
 
-	logger.Printf("Get data second time")
+	perRequest := float64(sendElapsed) / float64(*requestCount)
+	logger.Printf("********************************")
+	logger.Printf("sent %d values in total, elapsed %v us, per request %v us", *requestCount, sendElapsed, perRequest)
+	logger.Printf("********************************")
+
 	result := getData(c)
 	fileName := fmt.Sprintf("./perfresult-follower-%s", *followerID)
 	err := ioutil.WriteFile(fileName, []byte(result), 0644)
