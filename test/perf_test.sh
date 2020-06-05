@@ -1,5 +1,9 @@
 #!/bin/bash
 
+THREADCOUNT=1
+REQUESTSCOUNT=400
+TESTTIME=50
+
 function startFollowers {
   # TODO: use the docker container to bring up the env
   config_file=${1}
@@ -32,18 +36,19 @@ function startFollowers {
 
 function startClients {
   config_file=${1}
+  # Perf test parameters
 
-  bin/client --follower_id=0 --mode=perf --config_file=${config_file}  &
+  bin/client --follower_id=0 --mode=perf --config_file=${config_file} --threadcount=$THREADCOUNT --requestcount=$REQUESTSCOUNT --testtime=$TESTTIME &
   CLIENT0_PID=$!
-  bin/client --follower_id=1 --mode=perf --config_file=${config_file} > c-1.log &
+  bin/client --follower_id=1 --mode=perf --config_file=${config_file} --threadcount=$THREADCOUNT --requestcount=$REQUESTSCOUNT --testtime=$TESTTIME &
   CLIENT1_PID=$!
-  bin/client --follower_id=2 --mode=perf --config_file=${config_file} > c-2.log &
+  bin/client --follower_id=2 --mode=perf --config_file=${config_file} --threadcount=$THREADCOUNT --requestcount=$REQUESTSCOUNT --testtime=$TESTTIME &
   CLIENT2_PID=$!
-  bin/client --follower_id=3 --mode=perf --config_file=${config_file} > c-3.log &
+  bin/client --follower_id=3 --mode=perf --config_file=${config_file} --threadcount=$THREADCOUNT --requestcount=$REQUESTSCOUNT --testtime=$TESTTIME &
   CLIENT3_PID=$!
-  bin/client --follower_id=4 --mode=perf --config_file=${config_file} > c-4.log &
+  bin/client --follower_id=4 --mode=perf --config_file=${config_file} --threadcount=$THREADCOUNT --requestcount=$REQUESTSCOUNT --testtime=$TESTTIME &
   CLIENT4_PID=$!
-  bin/client --follower_id=5 --mode=perf --config_file=${config_file} > c-5.log &
+  bin/client --follower_id=5 --mode=perf --config_file=${config_file} --threadcount=$THREADCOUNT --requestcount=$REQUESTSCOUNT --testtime=$TESTTIME &
   CLIENT5_PID=$!
 
   echo "Clients PIDs"
@@ -70,9 +75,11 @@ echo "Followers started"
 
 startClients $CONFIG
 
-# Sleep for 15 seconds to wait for the client to finish.log 
-# Clients are waiting for 10 seconds after sending the requests to wait for leader to broadcasting.
-sleep 15
+# Sleep for test duration
+sleep $TESTTIME
+
+# Sleep for 10 more  seconds to wait for the client to finish
+sleep 10
 
 echo "Kill Servers"
 kill $LEADER_PID
@@ -84,10 +91,15 @@ kill $FOLLOWER4_PID
 kill $FOLLOWER5_PID
 
 echo "Comparing results..."
-diff perfresult-follower-0 perfresult-follower-1
-diff perfresult-follower-0 perfresult-follower-2
-diff perfresult-follower-0 perfresult-follower-3
-diff perfresult-follower-0 perfresult-follower-4
-diff perfresult-follower-0 perfresult-follower-5
+echo "diff 0 to 1..."
+diff perfresult-follower-0 perfresult-follower-1 > diff-0-1.txt
+echo "diff 0 to 2..."
+diff perfresult-follower-0 perfresult-follower-2 > diff-0-2.txt
+echo "diff 0 to 3..."
+diff perfresult-follower-0 perfresult-follower-3 > diff-0-3.txt
+echo "diff 0 to 4..."
+diff perfresult-follower-0 perfresult-follower-4 > diff-0-4.txt
+echo "diff 0 to 5..."
+diff perfresult-follower-0 perfresult-follower-5 > diff-0-5.txt
 
 echo "All done!"
