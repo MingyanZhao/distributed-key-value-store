@@ -73,11 +73,10 @@ func sendConcurRequest(ctx context.Context, c flpb.FollowerClient, t time.Time, 
 	k := testKeys[rand.Intn(len(testKeys))]
 	req := &flpb.PutRequest{
 		Key:   k,
-		Value: fmt.Sprintf("client-%v-%v-t-%d-%s", *followerID, k, thread, uuid.New()),
+		Value: fmt.Sprintf("c-%v-t%d-%v-%s", *followerID, thread, k, uuid.New()),
 	}
-
-	logger.Printf("sending request %v", req)
 	start := time.Now()
+	logger.Printf("sending request %v, at %v", req, start.UnixNano())
 	_, err := c.Put(ctx, req)
 	elapsed := time.Since(start)
 	elapsedLock.Lock()
@@ -185,7 +184,7 @@ func perfTest(c flpb.FollowerClient) {
 
 	perRequest := float64(sendElapsed) / float64(*requestCount)
 	logger.Printf("********************************")
-	logger.Printf("sent %d values in total, elapsed %v us, per request %v us", (*requestCount)*(*threadCount), sendElapsed, perRequest)
+	logger.Printf("sent %d values in total, elapsed %v us, per request %v us", valueCount, sendElapsed, perRequest)
 	logger.Printf("********************************")
 
 	result := getData(c)
@@ -252,6 +251,13 @@ func main() {
 		runClient(client)
 	case "perf":
 		perfTest(client)
+	case "getdata":
+		result := getData(client)
+		fileName := fmt.Sprintf("./current-data-for-%s", *followerID)
+		err := ioutil.WriteFile(fileName, []byte(result), 0644)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 }
