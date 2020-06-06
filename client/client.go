@@ -68,12 +68,12 @@ func sendRequest(ctx context.Context, c flpb.FollowerClient, t time.Time) {
 }
 
 // sentRequest
-func sendConcurRequest(ctx context.Context, c flpb.FollowerClient, t time.Time) {
+func sendConcurRequest(ctx context.Context, c flpb.FollowerClient, t time.Time, thread int) {
 	rand.Seed(time.Now().UnixNano())
 	k := testKeys[rand.Intn(len(testKeys))]
 	req := &flpb.PutRequest{
 		Key:   k,
-		Value: fmt.Sprintf("client-%v-%v-value-%s", *followerID, k, uuid.New()),
+		Value: fmt.Sprintf("client-%v-%v-t-%d-%s", *followerID, k, thread, uuid.New()),
 	}
 
 	logger.Printf("sending request %v", req)
@@ -81,6 +81,7 @@ func sendConcurRequest(ctx context.Context, c flpb.FollowerClient, t time.Time) 
 	_, err := c.Put(ctx, req)
 	elapsed := time.Since(start)
 	elapsedLock.Lock()
+	valueCount++
 	sendElapsed += elapsed.Microseconds()
 	elapsedLock.Unlock()
 	if err != nil {
@@ -111,7 +112,7 @@ func getData(c flpb.FollowerClient) string {
 	ctx := context.Background()
 	// var result = make([][]string, 10)
 	logger.Printf("********************************")
-	var count int
+	var received int
 	var result string
 	start := time.Now()
 
@@ -124,14 +125,14 @@ func getData(c flpb.FollowerClient) string {
 		if err != nil {
 			logger.Fatalf("%v.Get(_) = _, %v: ", c, err)
 		}
-		count += len(resp.Values)
+		received += len(resp.Values)
 		sort.Strings(resp.Values)
 		r := fmt.Sprintf("%v: [%v]\n\n\n", k, resp.Values)
 		result += r
 	}
 	elapsed := time.Since(start)
 	perRequest := float64(elapsed.Microseconds()) / float64(len(testKeys))
-	logger.Printf("get %d values in total, elapsed %v, per request %v microseconds", count, elapsed, perRequest)
+	logger.Printf("get %d values in total, elapsed %v, per request %v microseconds", received, elapsed, perRequest)
 	logger.Printf("********************************")
 	return result
 }
@@ -164,7 +165,7 @@ func sendRequestsConcurrently(ctx context.Context, c flpb.FollowerClient, t int)
 			logger.Println("done perf test sending requests")
 			return
 		case <-ticker.C:
-			go sendConcurRequest(ctx, c, time.Now())
+			go sendConcurRequest(ctx, c, time.Now(), t)
 			count--
 			if count == 0 {
 				done <- true
@@ -184,7 +185,7 @@ func perfTest(c flpb.FollowerClient) {
 
 	perRequest := float64(sendElapsed) / float64(*requestCount)
 	logger.Printf("********************************")
-	logger.Printf("sent %d values in total, elapsed %v us, per request %v us", *requestCount, sendElapsed, perRequest)
+	logger.Printf("sent %d values in total, elapsed %v us, per request %v us", (*requestCount)*(*threadCount), sendElapsed, perRequest)
 	logger.Printf("********************************")
 
 	result := getData(c)

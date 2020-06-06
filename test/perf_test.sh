@@ -1,8 +1,8 @@
 #!/bin/bash
 
-THREADCOUNT=1
-REQUESTSCOUNT=400
-TESTTIME=50
+THREADCOUNT=2
+REQUESTSCOUNT=10
+TESTTIME=30
 
 function startFollowers {
   # TODO: use the docker container to bring up the env
