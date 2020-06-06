@@ -1,0 +1,40 @@
+# GCP internal IPs
+leader: {
+  address: "10.128.0.7"
+  port: 9999
+}
+followers {
+  key: "0"
+  value: {
+    address: "10.138.0.39"
+    port: 10000
+  }
+}
+followers {
+  key: "1"
+  value: {
+    address: "10.128.0.12"
+    port: 10001
+  }
+}
+followers {
+  key: "2"
+  value: {
+    address: "10.154.0.3"
+    port: 10002
+  }
+}
+followers {
+  key: "3"
+  value: {
+    address: "10.146.0.3"
+    port: 10003
+  }
+}
+followers {
+  key: "4"
+  value: {
+    address: "10.142.0.4"
+    port: 10004
+  }
+}
