@@ -212,7 +212,6 @@ func (l *leader) broadcasting() {
 			logger.Println("done broadcasting")
 			return
 		case <-ticker.C:
-			logger.Println("broadcast...")
 			for id, fc := range l.followers {
 				for k, vi := range l.keyVersionMap.data {
 					if id == vi.fInfo.followerID {
