@@ -1,7 +1,7 @@
 #!/bin/bash
 
 THREADCOUNT=2
-REQUESTSCOUNT=200
+REQUESTSCOUNT=600
 TESTTIME=30
 
 function startFollowers {
