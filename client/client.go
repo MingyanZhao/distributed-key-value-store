@@ -73,10 +73,10 @@ func sendConcurRequest(ctx context.Context, c flpb.FollowerClient, t time.Time, 
 	k := testKeys[rand.Intn(len(testKeys))]
 	req := &flpb.PutRequest{
 		Key:   k,
-		Value: fmt.Sprintf("c-%v-t%d-%v-%s", *followerID, thread, k, uuid.New()),
+		Value: fmt.Sprintf("value-client-%v-t%d-%v-%s", *followerID, thread, k, uuid.New()),
 	}
 	start := time.Now()
-	logger.Printf("sending request %v, at %v", req, start.UnixNano())
+	// logger.Printf("sending request %v, at %v", req, start.UnixNano())
 	_, err := c.Put(ctx, req)
 	elapsed := time.Since(start)
 	elapsedLock.Lock()

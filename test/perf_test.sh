@@ -1,8 +1,8 @@
 #!/bin/bash
 
 THREADCOUNT=100
-REQUESTSCOUNT=100
-TESTTIME=8
+REQUESTSCOUNT=600
+TESTTIME=4
 
 function startFollowers {
   # TODO: use the docker container to bring up the env
@@ -82,13 +82,13 @@ sleep $TESTTIME
 sleep 10
 
 echo "Kill Servers"
-kill $LEADER_PID
 kill $FOLLOWER0_PID
 kill $FOLLOWER1_PID
 kill $FOLLOWER2_PID
 kill $FOLLOWER3_PID
 kill $FOLLOWER4_PID
 kill $FOLLOWER5_PID
+kill $LEADER_PID
 
 echo "Comparing results..."
 echo "diff 0 to 1..."
