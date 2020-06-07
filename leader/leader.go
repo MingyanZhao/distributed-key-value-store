@@ -184,7 +184,7 @@ func (l *leader) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UpdateR
 	// TODO: Comment it out temporarily for testing.
 	// l.broadcaster.enqueue(req.Key, resp)
 
-	logger.Printf("leader replying update response %v", resp)
+	logger.Printf("leader replying update for %v, response %v", req.Key, resp)
 	return resp, nil
 }
 
