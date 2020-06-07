@@ -152,32 +152,42 @@ func runClient(client flpb.FollowerClient) {
 	getData(client)
 }
 
-func sendRequestsConcurrently(ctx context.Context, c flpb.FollowerClient, t int) {
+func sendRequestsConcurrently(ctx context.Context, c flpb.FollowerClient, t int, wg *sync.WaitGroup) {
 	logger.Printf("this is routine %d", t)
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	done := make(chan bool)
-	count := *requestCount
-	for {
-		select {
-		case <-done:
-			logger.Println("done perf test sending requests")
-			return
-		case <-ticker.C:
-			go sendConcurRequest(ctx, c, time.Now(), t)
-			count--
-			if count == 0 {
-				done <- true
-			}
-		}
+	defer wg.Done()
+	// ticker := time.NewTicker(50 * time.Millisecond)
+	// defer ticker.Stop()
+	// done := make(chan bool)
+	// count := *requestCount
+	// // for {
+	// // 	select {
+	// // 	case <-done:
+	// // 		logger.Println("done perf test sending requests")
+	// // 		return
+	// // 	case <-ticker.C:
+	// // 		go sendConcurRequest(ctx, c, time.Now(), t)
+	// 		count--
+	// 		if count == 0 {
+	// 			done <- true
+	// 		}
+	// 	}
+	// }
+
+	for i := 0; i < *requestCount; i++ {
+		sendConcurRequest(ctx, c, time.Now(), t)
 	}
 }
 
 func perfTest(c flpb.FollowerClient) {
 	ctx := context.Background()
+	var wg sync.WaitGroup
 	for i := 0; i < *threadCount; i++ {
-		go sendRequestsConcurrently(ctx, c, i)
+		wg.Add(1)
+		go sendRequestsConcurrently(ctx, c, i, &wg)
 	}
+	logger.Println("wait for wait group")
+	wg.Wait()
+	logger.Println("wait done wait group")
 
 	// Wait for other test clients to finish
 	time.Sleep(time.Duration(*testTime) * time.Second)
