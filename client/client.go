@@ -109,12 +109,10 @@ func sentRequests(client flpb.FollowerClient) {
 
 func getData(c flpb.FollowerClient) string {
 	ctx := context.Background()
-	// var result = make([][]string, 10)
 	logger.Printf("********************************")
 	var received int
 	var result string
 	start := time.Now()
-
 	for _, k := range testKeys {
 		req := &flpb.GetRequest{
 			Key: k,
@@ -131,7 +129,7 @@ func getData(c flpb.FollowerClient) string {
 	}
 	elapsed := time.Since(start)
 	perRequest := float64(elapsed.Microseconds()) / float64(len(testKeys))
-	logger.Printf("get %d values in total, elapsed %v, per request %v microseconds", received, elapsed, perRequest)
+	logger.Printf("get %d values in total, elapsed %v, per request %v microseconds, started at %v", received, elapsed, perRequest, start)
 	logger.Printf("********************************")
 	return result
 }
@@ -153,7 +151,6 @@ func runClient(client flpb.FollowerClient) {
 }
 
 func sendRequestsConcurrently(ctx context.Context, c flpb.FollowerClient, t int, wg *sync.WaitGroup) {
-	logger.Printf("this is routine %d", t)
 	defer wg.Done()
 	// ticker := time.NewTicker(50 * time.Millisecond)
 	// defer ticker.Stop()
@@ -178,6 +175,21 @@ func sendRequestsConcurrently(ctx context.Context, c flpb.FollowerClient, t int,
 	}
 }
 
+func periodicGetData(c flpb.FollowerClient) {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	done := time.After(time.Duration(*testTime) * time.Second)
+	for {
+		select {
+		case <-done:
+			logger.Println("done periodic get data")
+			return
+		case <-ticker.C:
+			getData(c)
+		}
+	}
+}
+
 func perfTest(c flpb.FollowerClient) {
 	ctx := context.Background()
 	var wg sync.WaitGroup
@@ -189,10 +201,12 @@ func perfTest(c flpb.FollowerClient) {
 	wg.Wait()
 	logger.Println("wait done wait group")
 
+	periodicGetData(c)
+
 	// Wait for other test clients to finish
 	time.Sleep(time.Duration(*testTime) * time.Second)
 
-	perRequest := float64(sendElapsed) / float64(*requestCount)
+	perRequest := float64(sendElapsed) / (float64(*requestCount) * float64(*threadCount))
 	logger.Printf("********************************")
 	logger.Printf("sent %d values in total, elapsed %v us, per request %v us", valueCount, sendElapsed, perRequest)
 	logger.Printf("********************************")
