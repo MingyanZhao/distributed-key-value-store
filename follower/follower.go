@@ -155,12 +155,17 @@ func (f *follower) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse
 		f.initNewKey(req.Key)
 	}
 
+	// Only update when the buffer is empty, which means the leader has accepted
+	// the last update request and the buffer has been moved to the data store.
+	// So it can send a new update request for the incoming data.
+	if len(f.store[req.Key].buffer) == 0 {
+		go f.sendUpdate(req.Key)
+	}
+
 	// The incoming values are put in the buffer and waiting to be udpated by the leader.
 	f.store[req.Key].buffer = append(f.store[req.Key].buffer, req.Value)
 	// f.store[req.Key].values = append(f.store[req.Key].values, newData)
 	res := fmt.Sprintf("key value pair recieved %v: %v", req.Key, req.Value)
-
-	go f.sendUpdate(req.Key)
 
 	logger.Printf("Received Put request %v, key %v is on version %v now", req, req.Key, f.store[req.Key].latestVersion)
 	f.storeMutex.Unlock()
@@ -191,7 +196,7 @@ func (f *follower) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse
 		}
 
 		sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
-
+		// logger.Printf("key %v versions are %v", req.Key, versions)
 		var v []string
 		for _, k := range versions {
 			v = append(v, d.versionToValues[k]...)
@@ -208,7 +213,7 @@ func (f *follower) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse
 }
 
 func (f *follower) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncResponse, error) {
-	logger.Printf("Received Sync request %v", req)
+	logger.Printf("Received Sync request for key %v, asking for versions %v", req.Key, req.AskFor.Versions)
 	if _, ok := f.store[req.Key]; !ok {
 		return nil, fmt.Errorf("sync message discarded because the key %v is not found", req.Key)
 	}
@@ -224,7 +229,7 @@ func (f *follower) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncRespo
 	// Only reply the versions that being asked for.
 	for _, v := range askForVers {
 		if d, ok := mydata[v]; !ok || len(d) == 0 {
-			err := fmt.Errorf("syncing not completed, version exist? %v, data exist? %v, for key %v version %v", ok, len(d) == 0, req.Key, v)
+			err := fmt.Errorf("syncing not completed, version exist? %v, data exist? %v, for key %v version %v", ok, len(d) != 0, req.Key, v)
 			logger.Print(err)
 			continue
 		}
@@ -327,7 +332,7 @@ func (f *follower) handleSync(key string) error {
 			}
 
 			// syncResp received, update local store with incoming data
-			logger.Printf("handling sync response, %v", syncResp)
+
 			newValues := syncResp.Value
 			f.storeMutex.Lock()
 			f.store[key].versionToValueLock.Lock()
@@ -351,6 +356,7 @@ func (f *follower) handleSync(key string) error {
 			}
 			f.store[key].versionToValueLock.Unlock()
 
+			logger.Printf("sync response processed, asked for %v, not synced %v", syncReqest.req.AskFor.Versions, askForVersionsLeft)
 			// Response may not have every version, retry what is left.
 			if len(askForVersionsLeft) > 0 {
 				retryAskForVersions := make([]int64, 0)
@@ -374,7 +380,6 @@ func (f *follower) handleSync(key string) error {
 				}()
 			}
 			f.storeMutex.Unlock()
-
 			// logger.Printf("SyncResp done, %v", syncResp)
 		}
 	}
@@ -441,7 +446,7 @@ func (f *follower) handleUpdate(key string) error {
 					backupID:    updateResp.PreBackup.FollowerId,
 					backupAddr:  updateResp.PreBackup.Address,
 				}
-				logger.Printf("key %v needs a sync request %v, with follower %v", key, s.req, s.primaryID)
+				logger.Printf("key %v needs a sync askfor versions %v from follower %v", key, s.req.AskFor.Versions, s.primaryID)
 				go func() {
 					f.store[key].syncReqChan <- s
 				}()
