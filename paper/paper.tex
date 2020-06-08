@@ -25,24 +25,22 @@
 \section*{Abstract}
 We built an eventually consistent, append-only datastore focused on low
 read/write latency and high availability. In the common case, clients interact
-only with nearby nodes for extremely low latency. Data is always append to the 
-store for a given key and the order is relatively kept.
+only with nearby nodes for extremely low latency. Data is always appended to the 
+store for a given key and the relative order of observed data is maintained.
 
 The datastore is eventually consistent. Data is stored in memory for low latency
 and in local disk for safety. Nodes can operate when disconnected from the
 system, preserving availability in the face of total and long-term partitioning.
-We believe this system will be useful in chat, social media and distributed logging
-applications.
+We believe this system will be useful in chat, social media, and distributed
+logging applications.
 
 \vspace{-0.4cm}
 \section{Introduction}
 \vspace{-0.2cm}
 As organizations increasingly move to the cloud, applications are designed from
-the ground up with a distributed architecture (in some cases referred to as
-\textit{microservices}). Despite numerous advantages, distributed
-application design requires addressing latency and partitioning concerns that
-monolithic applications do not have (or in the case of partitioning, are not
-solvable).
+the ground up with a distributed architecture (\textit{microservices}). Despite
+numerous advantages, distributed application design requires addressing latency
+and partitioning concerns that monolithic applications do not have.
 
 Our \textit{append-only datastore} addresses latency and partitioning concerns
 for append-only workloads. It is designed to run as a service distributed
@@ -52,10 +50,12 @@ over other eventually consistent systems:
 \begin{enumerate}
 	\item Clients communicate only with their nearest follower for extremely
 		low latency. \vspace{-0.3cm}
-	\item Followers provide linearizability for client appends on a single
-		key. That is, all clients writing to the same key of the same
-		follower will see linearized writes.\vspace{-0.3cm}
-	\item Data and its order is eventual consistency globally
+	\item Eventual consistency is minimally disruptive to clients. A client
+		may read the data for key $k$ and receive data consisting of 2
+		writes' data: $\{d_1, d_2\}$. Write $x$ with data $d_x$ sent
+		through another follower preserves the ordering of $d_1$ and
+		$d_2$, so the system eventually returns $\{d_x, d_1, d_2\}$,
+		$\{d_1, d_x, d_2\}$, or $\{d_1, d_2, d_x\}$ when read.
 \end{enumerate}
 We also gain the advantages of some more traditionally eventually consistent
 systems, such as great partition tolerance \cite{Dynamo}. Together, these
@@ -63,18 +63,22 @@ properties are highly desirable for many append-only applications. Consider the
 following:
 
 \begin{itemize}
-	\item \textbf{Distributed logging} - Consider a monitoring service using the append-only datastore records logs in real time. The service writes and retrieves logs with extremely low latency from the nearby data center. Also it is provided an eventually consistent log that has the data from all of the deployments.
+	\item \textbf{Distributed logging} - Consider a monitoring service using
+		the append-only datastore for logs in real time. The service
+		writes and retrieves logs with extremely low latency from the
+		nearby data center. Also it is provided an eventually consistent
+		log that contains data from all of the deployments.
 	\item \textbf{Chat Application} - Consider a chatroom
-		occupied by a team in North American and a team in Asia. Each
-		team member sees their local peers' messages immediately and in
-		exactly the order that they are sent.
+		occupied by a team in North America and a team in Asia. Each
+		team member sees their local peers' messages immediately, and
+		all messages eventually.
 \end{itemize}
 
 \section{Related Work}
 Amazon's Dynamo \cite{Dynamo} supports always-writable semantics, high partition
 tolerance, and laser-focuses on low-latency operation. Unlike our system, Dynamo
 is a key-value store. It also exposes a great deal of complexity to developers,
-who have to tailor their use of Dynamo such that conflicts are resolvable and
+who must tailor their use of Dynamo such that conflicts are resolvable and
 must manually implement conflict resolution in clients. Our system does not
 allow for conflicts. Google's GFS \cite{GFS} is also optimized for append-heavy workloads and uses a
 single master for simplicity and intelligent coordination. It supports random
@@ -99,12 +103,15 @@ data.
 \caption{Architecture}
 \label{Architecture}
 \end{figure}
-Clients are exposed the following API by followers:
+Clients are exposed to the following API by followers:
 \begin{itemize}
 	\item \texttt{append(key, data)} - Appends \texttt{data} to the existing
-		data for \texttt{key}. Guarantees that \texttt{data} is safe if data is written in local disk.
+		data for \texttt{key}. Guarantees that \texttt{data} will be
+		committed eventually if it is written to local disk.
 	\item \texttt{get(key)} - Gets the data for \texttt{key}, represented as a
-		list of values. Data written by the same client is guaranteed to be in the same order, but new data may appear later.
+		list of values. Later calls to \texttt{get} return data in the
+		same relative order, but other data may be interleaved or
+		appended.
 \end{itemize}
 
 \subsection{Leader}
@@ -118,15 +125,28 @@ simplifies our implementation and the rest of our design, which increases
 the overall stability of the system. 
 
 \subsubsection{Index number}
-The Leader maintains the latest index number for all keys. The index numbers are globally unique and monotonically increasing. Once generated, it will be mapped to a list of value on the requesting follower. If another follower needs that value, it simply needs the index number to fetch the data. The index numbers are protected by mutex lock to avoid conflicting update. 
+The leader maintains the latest index number for all keys. Index numbers are
+globally unique and monotonically increasing. Once generated, each is mapped
+to a list of values on the requesting follower. If another follower needs that
+value, it simply needs the index number to fetch the data.
 
- \vspace{-0.4cm}
+\vspace{-0.4cm}
 \subsubsection{Update}
-Upon receiving an \texttt{Update} request, the \texttt{Leader} advance the index number by one and update the follower information to the incoming one. Each key entry is locked before updating to avoid concurrent write issue.
+Upon receiving an \texttt{Update} request, the leader advances the index
+number by one and updates the follower information to the incoming one.
 
-The \texttt{Leader} decides if the requesting follower needs to sync up with other followers. If a mapping exists from key $k$ to index $i$, an \texttt{Update} carrying the same index $i$ does not need an Sync (the $i$ still increments by 1). This may happen when 1)  a key created on the \texttt{Leader} for the first time, or 2) the requesting follower is the same as the recorded follower for the key.
+The \texttt{Leader} decides whether the requesting follower needs to sync up
+with other followers. If a mapping exists from key $k$ to index $i$, an
+\texttt{Update} carrying the same index $i$ does not need a Sync ($i$ still
+increments by 1). This may happen when 1) a key created on the leader for the
+first time, or 2) the requesting follower is the same as the recorded follower
+for the key.
 
-An \texttt{Update} to $i' < i$ indicates that the sender is not holding the latest data. In this case the leader signals it to sync with the follower in its records that originated the append at index $i$. This may happen when two followers are appending data to the same key alternatively. A common case is shown in Figure \ref{CommonUpdate}.
+An \texttt{Update} to $i' < i$ indicates that the sender does not have the
+latest data. In this case the leader signals the follower to sync with the
+follower in its records that originated the append at index $i$. This may happen
+when two followers are append data to the same key concurrently. The common,
+non-concurrent case is shown in Figure \ref{CommonUpdate}.
 
 % update procedure figure
 \begin{figure}[h]
@@ -137,9 +157,18 @@ An \texttt{Update} to $i' < i$ indicates that the sender is not holding the late
 
 \vspace{-0.3cm}
 \subsubsection{Broadcasting index numbers}
-The broadcasting of the \texttt{Leader} ensures the eventual consistency of the system. The new appended value gets replicated and synced immediately between the requesting followers and in-record follower, but all of the other followers would not know it until the \texttt{Leader} broadcasting the latest index number. 
+The leader broadcasts ensure the eventual consistency of the system. Each
+appended value gets replicated and synced immediately between the requesting
+followers and in-record follower, but all of the other followers do not know
+it until the leader broadcasts the latest index number. 
 
-Depending on the workload and use cases, we provide different ways of broadcasting. One is triggered per-request, which is expected to provide lower consistency latency but may only be used in a lower QPS scenario, since the broadcasting may cause a great amount of communication between the followers. The other one is triggered periodically, which is expected to be used in most cases. The \texttt{Leader} only broadcasts the updated keys and their index numbers in a short period of time.
+Depending on the workload and use cases, we provide different ways of
+broadcasting. One is triggered per-request, which is expected to provide lower
+consistency latency but may only be used in a lower QPS scenario, since the
+broadcasting may cause a great amount of communication between the followers.
+The other one is triggered periodically, which is expected to be used in most
+cases. The leader broadcasts the updated keys and their index numbers repeatedly
+at a small, set interval.
 
 \subsubsection{Leader Fault Tolerance}
 Because the leader writes all updates to disk, it tolerates crashes and reboots.
@@ -179,22 +208,44 @@ reading and writing latency. The data structure is described in Figure \ref{Data
 \end{figure}
 
 \subsubsection{Client Interfaces}
-\textbf{Append(key, data):} Upon reviving \texttt{Append} request, the follower write the data to memory first and then write to a local disk for data safety. It returns immediately after the data is written to local disk. For increased fault
-tolerance, the append should be written to multiple disks locally or to a remote
-disk as well. Note that throughout this section when we refer to updating local
-storage, the in-memory store is also updated immediately after data is written
-to disk.
+\textbf{Append(key, data):} Upon reviving an \texttt{Append} request, the
+follower writes the data to memory first and then writes to a local disk for data
+safety. It returns immediately after the data is written to local disk. For
+increased fault tolerance, the append should be written to multiple disks
+locally or to a remote disk. Note that throughout this section when we
+refer to updating local storage, the in-memory store is also updated immediately
+after data is written to disk.
 
-The follower always appends the data to the pre-update-buffer firstly, then issues an \texttt{Update} if the pre-update-buffer is not empty. If it receives an \texttt{Update} response with a index number, it creates an new index entry and moves all of the data from pre-update-buffer to the new entry. 
+The follower always appends data to the pre-update-buffer first, then issues an
+\texttt{Update} if the pre-update-buffer is not empty. If it receives an
+\texttt{Update} response with a index number, it creates a new index entry and
+moves all of the data from pre-update-buffer to the new entry. 
 
-\noindent \textbf{Get(key):} When clients issue a \texttt{Get} requests, they are served from the in-memory datastore. It guarantees that the data written by the local clients are up-to-date but it is not globally consistent. The follower builds up a list with all of the data from each index as well as everything from the pre-update-buffer.
+\noindent \textbf{Get(key):} When clients issue a \texttt{Get} request, they are
+served from the in-memory datastore. We guarantees that the data read by the
+clients are correct, but not necessarily yet globally consistent. The follower
+builds up a list with all of the data from each index as well as everything from
+the pre-update-buffer.
 
 \subsubsection{Synchronization}
-Followers use the \texttt{Sync} request to get data they missed. This ensures the eventual consistency of the system. \texttt{Sync} requests also signal what data the sender has to the recipient, enabling the recipient to create new index entries in its local datastore. The \texttt{Sync} request is issued when a follower receives an \texttt{Update} response from the \texttt{Leader} indicating it needs synchronization. 
+Followers use the \texttt{Sync} request to get data they missed. This ensures
+the eventual consistency of the system. \texttt{Sync} requests also signal what
+data the sender has to the recipient, enabling the recipient to create new index
+entries in its local datastore. The \texttt{Sync} request is issued when a
+follower receives an \texttt{Update} response from the leader indicating it
+needs synchronization. 
 
-Since a follower may missing multiple indices of data, a \texttt{Sync} request may carries a list of indices that it is asking for. However the recipient may also missing some of the indices if there is a large amount of \texttt{Sync} requests on the flight everywhere. To mitigate this, the \texttt{Sync} response only reply with indices and the data the recipient already has, so that the issuer could accept what are returned and do another \texttt{Sync} asking for what is left. Eventually, each follower will synchronize with  other ones and achieves the globally consistency.
+Since a follower may missing multiple indices of data, a \texttt{Sync} request
+may carry a list of indices that it is asking for. However the recipient may
+also be missing some of the indices if there is a large amount of \texttt{Sync}
+requests in flight simultaneously. To mitigate this, the \texttt{Sync} response
+only replies with indices and data the recipient already has, so that the
+issuer can accept what is returned and do another \texttt{Sync} asking for
+what is left. Eventually, each follower synchronizes with and achieves global
+consistency.
 
-Combining with the \texttt{Update} requests, the Figure \ref{UpdateAndSync} demonstrates a message flow of synchronization in common case.
+Combined with the \texttt{Update} requests, Figure \ref{UpdateAndSync}
+demonstrates a message flow of synchronization in common case.
 
 % UpdateAndSync figure
 \begin{figure}[h]
@@ -216,8 +267,10 @@ system simple while retaining its consistency properties.
 The system is written in Go and can be run manually or distributed and
 run with Docker. Nodes communicate via gRPC. 
 
-We ran tests with a cluster of Google Compute Engine virtual
-machines. Google Cloud platform provides internal IP address communication between VM instances, which means the request among servers would not need to go through public network so that the speed would be much faster. We deployed our system in the following locations.
+We ran tests with a cluster of Google Compute Engine virtual machines. Google
+Cloud platform provides internal IP communication between VM instances, which
+means request between servers do not go through the public Internet and are thus
+fast. We deployed our system in the following locations.
 \begin{itemize}
     \vspace{-0.4cm}
 	\item One leader in Iowa, Central USA.
@@ -238,11 +291,17 @@ machines. Google Cloud platform provides internal IP address communication betwe
     \end{itemize}
 \end{itemize}
 
-In the performance test, each client in the performance test sends 120,000 \texttt{Append} against 10 keys randomly, so that in total there would be 600,000 values in the datastore globally. After all of the \texttt{Appends} are done, each client then retrieves the data by issuing \texttt{Get} for all of the 10 keys every 0.5 second periodically.
+In the performance test, each client in the performance test sends 120,000
+\texttt{Append} against 10 keys randomly, so that in total there are
+600,000 values in the datastore globally. After all of the \texttt{Appends} are
+done, each client then retrieves the data by issuing \texttt{Get} for all of the
+10 keys every 0.5 second periodically.
 
- \vspace{-0.5cm}
-\subsection{Append Request Performance}
-We measures the \texttt{Append} request latency firstly, see Table \ref{AppendLatency}. The result shows that the speed of \texttt{Append} is extremely fast, which is about 7.5 millisecond in average. And the 600,000 requests can be done in a little less than 1 second, so that the performance test can be considered as showing a QPS performance of our system.
+\subsection{Append Request Performance} We measures the \texttt{Append} request
+latency in Table \ref{AppendLatency}.  The result shows that \texttt{Append} is
+extremely fast, about 7.5 milliseconds on average. The 600,000 requests can be
+done in a little less than 1 second due to appending only involving
+communication with a single node.
 
 \begin{table}[h]
 \small
@@ -256,13 +315,20 @@ Location & S. C. & Tokyo & Iowa & London & L.A. \\
 600k Req & 967.62 & 948.72 & 988.00 & 938.75 & 952.92\\
  \hline
 \end{tabular}
-\caption{Append request latency in millisecond(S.C. for South Carolina, L.A. for Los Angeles)}
+\caption{Append request latency in millisecond (S.C. for South Carolina, L.A. for Los Angeles)}
 \label{AppendLatency}
 \end{table}
 
  \vspace{-0.5cm}
 \subsection{Eventual consistency}
-One critical result is the eventual consistency, since this is what we trade off for the low latency read and write. The result is shown in Figure \ref{ConsistencyDelay}. We can see after 0.5 second, all of the Followers have already started syncing with each other and received some of the data from each other. The start point is different since the clients were started not at exactly the same time. After 2.0 seconds, we can see that the Follower deployed in South Carolina finished synchronization and received all of the 600,000 values. After 3.5 seconds, all of the follower were holding all of the data and the system reached the eventual consistency.
+One critical result is the eventual consistency, since this is what we trade off
+for the low latency read and write. The result is shown in Figure
+\ref{ConsistencyDelay}. After 0.5 seconds, all of the followers have already
+begun syncing with each other and received some of the data from each other. The
+start point is different since the clients were started sequentially. After 2.0
+seconds, the follower deployed in South Carolina finished synchronization and
+received all of the 600,000 values. After 3.5 seconds, all of the follower held
+all of the data and the system reached eventual consistency.
 
 % Consistency delay figure
 \begin{figure}[h]
@@ -275,8 +341,12 @@ One critical result is the eventual consistency, since this is what we trade off
 \label{ConsistencyDelay}
 \end{figure}
 
-\subsection{Get Request Performace}
-The result of the \texttt{Get} is shown in Figure \ref{GetRequestLatency}. From the figure, we can see the latency starts differently because the Follower held different amount of data. After 3.5 seconds, the latency of different Followers converged to between 90 milliseconds and 100 milliseconds. Note that the implementation of the \texttt{Get} could be optimized to achieve even better performance.
+\subsection{Get Request Performance}
+The result of the \texttt{Get} is shown in Figure \ref{ConsistencyDelay}.
+Latency starts differently because the Follower held different amount of data.
+After 3.5 seconds, the latency of different Followers converged to between 90
+milliseconds and 100 milliseconds. Note that the implementation of \texttt{Get}
+could be optimized to achieve better performance.
 
 % Get request delay figure
 %\begin{figure}[h]
@@ -288,8 +358,8 @@ The result of the \texttt{Get} is shown in Figure \ref{GetRequestLatency}. From 
 \section{Future Work}
 We could greatly increase throughput by providing a client library (rather than
 a raw GRPC interface) that is aware of the indices or latest index it holds.
-This would enable followers to selectively return only the few missing pieces of
-data a client is missing rather than all the data.
+This would enable followers to selectively return only the few pieces of data a
+client is missing rather than all the data.
 
 To increase fault tolerance, we have discussed making each follower and the
 leader their own small cluster of consensus nodes. This would greatly increase
@@ -302,7 +372,7 @@ fall back to another follower.
 \vspace{-0.3cm}
 \section{Conclusions}
 We built a datastore to provide low latency and high availability for append-only
-data storage. While this work is tailed to a specific set of workloads, there
+data storage. While this work is tailored to a specific set of workloads, there
 are numerous applications that can benefit from this approach.
 
 Our system can be used to support distributed services such as distributed
