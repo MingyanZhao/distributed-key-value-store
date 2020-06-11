@@ -130,7 +130,7 @@ globally unique and monotonically increasing. Once generated, each is mapped
 to a list of values on the requesting follower. If another follower needs that
 value, it simply needs the index number to fetch the data.
 
-\vspace{-0.4cm}
+\vspace{-0.2cm}
 \subsubsection{Update}
 Upon receiving an \texttt{Update} request, the leader advances the index
 number by one and updates the follower information to the incoming one.
@@ -146,7 +146,7 @@ An \texttt{Update} to $i' < i$ indicates that the sender does not have the
 latest data. In this case the leader signals the follower to sync with the
 follower in its records that originated the append at index $i$. This may happen
 when two followers are append data to the same key concurrently. The common,
-non-concurrent case is shown in Figure \ref{CommonUpdate}.
+non-concurrent case is shown in Figure \ref{CommonUpdate}. Since \texttt{Follower 4} only has index 5 for "key-2", the \texttt{Leader} will indicates \texttt{Follower 4} to sync up with \texttt{Follower 1} for index 6, 7, 8 ,9.
 
 % update procedure figure
 \begin{figure}[h]
@@ -216,8 +216,8 @@ locally or to a remote disk. Note that throughout this section when we
 refer to updating local storage, the in-memory store is also updated immediately
 after data is written to disk.
 
-The follower always appends data to the pre-update-buffer first, then issues an
-\texttt{Update} if the pre-update-buffer is not empty. If it receives an
+The follower always appends the input data to the pre-update-buffer first, then issues an
+\texttt{Update} asynchronous, if the pre-update-buffer is not empty. When it receives an
 \texttt{Update} response with a index number, it creates a new index entry and
 moves all of the data from pre-update-buffer to the new entry. 
 
@@ -264,7 +264,7 @@ system simple while retaining its consistency properties.
 
 \vspace{-0.4cm}
 \section{Evaluation}
-The system is written in Go and can be run manually or distributed and
+The system is written in Golang and can be run manually or distributed and
 run with Docker. Nodes communicate via gRPC. 
 
 We ran tests with a cluster of Google Compute Engine virtual machines. Google
@@ -272,34 +272,34 @@ Cloud platform provides internal IP communication between VM instances, which
 means request between servers do not go through the public Internet and are thus
 fast. We deployed our system in the following locations.
 \begin{itemize}
-    \vspace{-0.4cm}
+    \vspace{-0.2cm}
 	\item One leader in Iowa, Central USA.
-	\vspace{-0.4cm}
+	\vspace{-0.2cm}
 	\item One follower and one client in each of the following five locations
-\vspace{-0.3cm}
+\vspace{-0.2cm}
     \begin{itemize}
     \item Iowa, central USA.
-\vspace{-0.3cm}
+\vspace{-0.2cm}
 	\item Los Angeles, west USA.
-\vspace{-0.3cm}
+\vspace{-0.2cm}
 	\item South Carolina, east USA.
-\vspace{-0.3cm}
+\vspace{-0.2cm}
     \item London, west Europe.
-\vspace{-0.3cm}
+\vspace{-0.2cm}
     \item Tokyo, northeast Asia.
-\vspace{-0.3cm}
+\vspace{-0.2cm}
     \end{itemize}
 \end{itemize}
 
-In the performance test, each client in the performance test sends 120,000
+In the performance test, each client sends 120,000
 \texttt{Append} against 10 keys randomly, so that in total there are
 600,000 values in the datastore globally. After all of the \texttt{Appends} are
-done, each client then retrieves the data by issuing \texttt{Get} for all of the
+done, each client then retrieves the data by issuing \texttt{Get} for the
 10 keys every 0.5 second periodically.
 
 \subsection{Append Request Performance} We measures the \texttt{Append} request
 latency in Table \ref{AppendLatency}.  The result shows that \texttt{Append} is
-extremely fast, about 7.5 milliseconds on average. The 600,000 requests can be
+extremely fast, about 7.5 milliseconds on average. By design, the 600,000 requests are 
 done in a little less than 1 second due to appending only involving
 communication with a single node.
 
@@ -323,7 +323,7 @@ Location & S. C. & Tokyo & Iowa & London & L.A. \\
 \subsection{Eventual consistency}
 One critical result is the eventual consistency, since this is what we trade off
 for the low latency read and write. The result is shown in Figure
-\ref{ConsistencyDelay}. After 0.5 seconds, all of the followers have already
+\ref{fig:c}. After 0.5 seconds, all of the followers have already
 begun syncing with each other and received some of the data from each other. The
 start point is different since the clients were started sequentially. After 2.0
 seconds, the follower deployed in South Carolina finished synchronization and
@@ -332,17 +332,17 @@ all of the data and the system reached eventual consistency.
 
 % Consistency delay figure
 \begin{figure}[h]
-	\subfigure[Eventual Consistency Delay]{\label{fig:c}
-		\includegraphics[width=8cm]{figure/consistency.pdf}}
-	\subfigure[Get Request Latency.]{\label{fig:g}
-		\includegraphics[width=8cm]{figure/GetRequestLatency.pdf}}
+	\subfigure[Eventual Consistency Delay]{
+		\includegraphics[width=8cm]{figure/consistency.pdf}\label{fig:c}}
+	\subfigure[Get Request Latency.]{
+		\includegraphics[width=8cm]{figure/GetRequestLatency.pdf}\label{fig:g}}
 \caption{Performance Test Result}
 \vspace{-0.4cm}
 \label{ConsistencyDelay}
 \end{figure}
 
 \subsection{Get Request Performance}
-The result of the \texttt{Get} is shown in Figure \ref{ConsistencyDelay}.
+The perfomance of the \texttt{Get} is shown in Figure \ref{fig:g}.
 Latency starts differently because the Follower held different amount of data.
 After 3.5 seconds, the latency of different Followers converged to between 90
 milliseconds and 100 milliseconds. Note that the implementation of \texttt{Get}
